@@ -10,3 +10,6 @@ playwright-report/
 
 # 隔离工作区（EnterWorktree 用），别让它进仓库
 .claude/worktrees/
+
+# 隔离工作区（git worktree），别让它进仓库
+.worktrees/
