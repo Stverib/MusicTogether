@@ -116,7 +116,7 @@ MusicTogether/
 - Consumes: 无
 - Produces: 一份人工验收结论（R1/R2/R3 各自成立与否），决定后续是否继续
 
-- [ ] **Step 1: 写验证页**
+- [x] **Step 1: 写验证页**
 
 单文件，零依赖，零构建。必须自包含（真机上没有构建环境可以跑）。
 
@@ -268,7 +268,7 @@ log('IndexedDB: ' + (typeof indexedDB !== 'undefined' ? '有' : '没有'));
 </html>
 ```
 
-- [ ] **Step 2: 写验证说明**
+- [x] **Step 2: 写验证说明**
 
 `spike/README.md`:
 
@@ -303,14 +303,14 @@ log('IndexedDB: ' + (typeof indexedDB !== 'undefined' ? '有' : '没有'));
 不影响项目继续，只影响选歌的易用程度：退化为「多选文件」，功能完整，只是要一首首点。
 ```
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add spike/
 git commit -m "spike: add on-device capability verification page"
 ```
 
-- [ ] **Step 4: 【人工验收】在HarmonyOS 手机上跑一遍**
+- [x] **Step 4: 【人工验收】在HarmonyOS 手机上跑一遍** —— 2026-10-18 通过（R1/R1b/R2/R3 全部正常）
 
 这一步必须由项目所有者完成 —— 自动化测试无法替代。把 R1 / R1b / R2 / R3 四项结果告知执行者。
 
