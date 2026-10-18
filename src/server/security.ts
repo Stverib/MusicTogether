@@ -53,7 +53,9 @@ export function originAllowed(request: Request): boolean {
   const origin = request.headers.get('Origin');
   if (!origin) return false;
   try {
-    return new URL(origin).host === new URL(request.url).host;
+    // 比完整的 origin（协议 + 主机 + 端口），不是只比 host ——
+    // 否则 http:// 与 https:// 会被当成同源
+    return new URL(origin).origin === new URL(request.url).origin;
   } catch {
     return false;
   }
