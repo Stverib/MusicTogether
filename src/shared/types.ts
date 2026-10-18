@@ -1,3 +1,5 @@
+import type { ThemeId } from './themes';
+
 export type Track = {
   id: string;
   name: string;
@@ -60,4 +62,6 @@ export type RoomState = {
   playback: Playback;
   /** 曲目表 / 队列的结构版本号 */
   epoch: number;
+  /** 房间主题。房间级、服务端权威 —— 谁都能改，两边一起变 */
+  theme: ThemeId;
 };
