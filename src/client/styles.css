@@ -729,6 +729,23 @@ input::placeholder {
   text-align: right;
 }
 
+/* 成员状态点。颜色只是辅助 —— 每行右侧同时写着"在线 / 已离开"，
+   色觉障碍的人不靠这个点也能读出来 */
+.presence {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+.presence.on {
+  background: var(--ember-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ember-500) 22%, transparent);
+}
+.list li.away .name {
+  color: var(--ink-3);
+}
+
 /* 正在播的那一行：序号换成跳动的电平条 */
 .bars {
   flex: none;

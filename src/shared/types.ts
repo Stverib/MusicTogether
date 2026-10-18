@@ -12,6 +12,13 @@ export type Member = {
   clientId: string;
   name: string;
   joinedAt: number;
+  /**
+   * 人断开连接后**不从列表里删掉**，只把这里翻成 false。
+   *
+   * 删掉的话"已离开"这个状态根本不存在，而这个列表的意义正是"谁在这个房间里"
+   * —— 一起听歌时看得见其他成员刚走，比看得见他凭空消失更像一个房间。
+   */
+  online: boolean;
 };
 
 /**

@@ -23,6 +23,12 @@ const STORAGE_KEY = 'room';
 const SYNC_INTERVAL_MS = 30_000;
 
 /**
+ * 成员列表上限。只淘汰离线的最老的，在线的一个都不动。
+ * 长期房间否则会无限增长，而每份快照都要带上整份列表。
+ */
+const MAX_MEMBERS = 20;
+
+/**
  * 一个房间。
  *
  * 两条必须守住的约束：
@@ -243,14 +249,35 @@ export class RoomDO extends DurableObject<Env> {
     const room = this.requireRoom();
     const existing = room.members.find((m) => m.clientId === clientId);
     if (existing) {
-      if (existing.name !== name) {
-        existing.name = name;
-        await this.save();
-      }
+      // 同一个 clientId 又连上了（重连、或者开了第二个标签页）—— 翻回在线
+      const changed = existing.name !== name || !existing.online;
+      existing.name = name;
+      existing.online = true;
+      if (changed) await this.save();
       return;
     }
-    room.members.push({ clientId, name, joinedAt: Date.now() });
+    room.members.push({ clientId, name, joinedAt: Date.now(), online: true });
+    this.trimMembers(room);
     await this.save();
+  }
+
+  /**
+   * 成员列表的上限。**只淘汰离线的最老的** —— 在线的人一个都不动。
+   *
+   * 否则房间开得够久、来来去去够多之后，这个列表会无限长；而如果简单按
+   * 加入时间淘汰，第三十一个人进来会把正在听歌的人从列表里踢出去。
+   */
+  private trimMembers(room: RoomState): void {
+    const over = room.members.length - MAX_MEMBERS;
+    if (over <= 0) return;
+    const drop = new Set(
+      room.members
+        .filter((m) => !m.online)
+        .sort((a, b) => a.joinedAt - b.joinedAt)
+        .slice(0, over)
+        .map((m) => m.clientId),
+    );
+    if (drop.size) room.members = room.members.filter((m) => !drop.has(m.clientId));
   }
 
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -379,7 +406,7 @@ export class RoomDO extends DurableObject<Env> {
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
     const tag = this.ctx.getTags(ws)[0] ?? '';
-    // 只有这个 clientId 已经没有活着的连接时，才算真正离开
+    // 只有这个 clientId 已经没有活着的连接时，才算真的离线
     const stillHere = this.ctx
       .getWebSockets()
       .some((s) => (this.ctx.getTags(s)[0] ?? '') === tag);
@@ -387,7 +414,10 @@ export class RoomDO extends DurableObject<Env> {
 
     const room = this.room;
     if (!room) return;
-    room.members = room.members.filter((m) => m.clientId !== tag);
+    const member = room.members.find((m) => m.clientId === tag);
+    // 这里**不删人**，只翻成离线。删掉的话"已离开"就无从显示
+    if (!member || !member.online) return;
+    member.online = false;
     await this.save();
     this.broadcast({ type: 'members', members: room.members });
   }

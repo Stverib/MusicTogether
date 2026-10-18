@@ -63,21 +63,47 @@ describe('房间连接与成员', () => {
     expect(state.room.members[0].name).toBe('阿甲改名了');
   });
 
-  it('有人断线后成员列表移除他，并广播给剩下的人', async () => {
+  it('有人断线后留在成员列表里，但标记为已离开', async () => {
     const { members } = await roomWithMembers(['阿甲', '阿乙']);
     const a = members[0]!;
     const b = members[1]!;
 
     b.ws.close(1000, 'bye');
 
-    // 阿甲的队列里先是「阿乙进来」（2 人），再是「阿乙离开」（1 人）
+    // 阿甲的队列里先是「阿乙进来」（2 人），再是「阿乙离线」（仍是 2 人）。
+    // 断线不再把人从列表里删掉 —— 删掉的话"已离开"这个状态根本不存在。
     let latest: any = null;
     for (let i = 0; i < 4; i++) {
       latest = await nextOfType(a.next, 'members');
-      if (latest.members.length === 1) break;
+      const yi = latest.members.find((m: any) => m.name === '阿乙');
+      if (yi && yi.online === false) break;
     }
-    expect(latest.members).toHaveLength(1);
-    expect(latest.members[0].name).toBe('阿甲');
+    expect(latest.members).toHaveLength(2);
+    expect(latest.members.find((m: any) => m.name === '阿乙').online).toBe(false);
+    expect(latest.members.find((m: any) => m.name === '阿甲').online).toBe(true);
+  });
+
+  it('断线的人重连后翻回在线，不会变成第二个成员', async () => {
+    const { code, members } = await roomWithMembers(['阿甲', '阿乙']);
+    const a = members[0]!;
+    const b = members[1]!;
+
+    // 必须留一个人在场上读广播 —— 关掉的是阿乙自己的连接，
+    // 从它那儿是永远读不到"阿乙离线"这条广播的
+    b.ws.close(1000, 'bye');
+    let latest: any = null;
+    for (let i = 0; i < 4; i++) {
+      latest = await nextOfType(a.next, 'members');
+      const yi = latest.members.find((m: any) => m.name === '阿乙');
+      if (yi && yi.online === false) break;
+    }
+    expect(latest.members.find((m: any) => m.name === '阿乙').online).toBe(false);
+
+    // 同一个人拿同一个 clientId 重新连上：不新增成员，只是翻回在线
+    const again = await member(code, '阿乙', { clientId: b.clientId });
+    const state = await nextOfType(again.next, 'state');
+    expect(state.room.members).toHaveLength(2);
+    expect(state.room.members.find((m: any) => m.name === '阿乙').online).toBe(true);
   });
 
   it('三个人可以同时在同一个房间', async () => {
