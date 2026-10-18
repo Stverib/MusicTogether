@@ -27,9 +27,14 @@
 - **真机完整流程验收通过**（2026-10-18）：手机（HarmonyOS 浏览器）开局域网地址
   `http://192.168.1.5:8787` 连到开发机上跑的 `wrangler dev`，房间 `K7M2QX`，
   **手机上传**了 `example.mp3`，两台设备都能听到，成员列表 2 人，
-  连接指示为绿。截图见当时的会话。
+  连接指示为绿。
   这一轮同时验掉了三件之前只有测试覆盖的事：D8 的**手机上传**路径、
   局域网 HTTP 下整条链路、以及真机上的实际播放
+- **两端同步精度实测通过**（2026-10-18）：真机上手机与电脑"基本秒级同步"，
+  满足 D5 定的 ±1 秒
+- **R3 在完整应用里复现**（2026-10-18）：手机锁屏、切到其他 app 后音频继续播放。
+  （锁屏界面上的媒体控制按钮没有单独确认过 —— 那是 Media Session，
+  跟"能不能继续听"是两件事）
 - 修掉一个会让**整页白屏**的兼容性问题：`crypto.randomUUID()` 是安全上下文
   专属 API，而安全上下文不只是 HTTPS —— `http://localhost` 算，
   `http://192.168.1.5` 这种局域网地址**不算**。Join 在渲染时就要用 clientId，
@@ -43,13 +48,14 @@
 ### 尚未完成
 
 - **PWA 安装与锁屏媒体控制没有验过**：局域网 HTTP 不是安全上下文，
-  这两项在这条路上根本不可用，要等部署到 HTTPS 之后才能验
+  Service Worker 装不上，也就无从验起。要等 HTTPS（部署，或用
+  `cloudflared tunnel` 临时把本地 dev server 暴露成 HTTPS）
 - 安卓端没有单独跑过能力验证页（用户其他成员的设备）。
   安卓 Chrome 在这三件事上比 ArkWeb 宽松，风险低，但没验过就是没验过
-- 真机上两端进度条是否严格落在 ±1 秒内，没有专门量过 ——
-  用户是按"两边都能正常听"验收的。想量的话：一端拖进度条，看另一端跟不跟
 - 部署：`wrangler r2 bucket create musictogether-tracks` →
-  `wrangler secret put SESSION_SECRET` → `npm run deploy`（用户要求先不做）
+  `wrangler secret put SESSION_SECRET` → `npm run deploy`。
+  部署后就不需要本地起任何东西了，任何设备任何网络都能用
+  （不再是"同一个 WiFi"的限制）
 - 部署后要补的三条上线检查（本地无法验证）：生产密钥、R2 桶不公开、HSTS
 - `cloudflare:test` 的 `env`/`SELF` 已废弃，应迁移到 `cloudflare:workers`
   的 `env` 与 `exports.default.fetch()`
