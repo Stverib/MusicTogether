@@ -178,21 +178,24 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (!isUuid(trackId)) return fail(400, 'bad track id');
     if (!request.body) return fail(400, 'empty body');
 
-    // Content-Length 可以伪造或省略，这里只做快速拒绝；
-    // 真正的上限由 putTrack 在流式读取时累计计数（安全文档 §2.7）
-    const declared = Number(request.headers.get('Content-Length') ?? 0);
-    if (Number.isFinite(declared) && declared > MAX_UPLOAD_BYTES) return fail(413, 'file too large');
+    // R2 的 put() 要求流有已知长度，所以这里**必须**有 Content-Length。
+    // 不能只把它当参考值：实际字节数会被 FixedLengthStream 强制成这个数，
+    // 而登记时的配额也是按这个数算的，两者必须一致（安全文档 §2.7）
+    const declared = Number(request.headers.get('Content-Length'));
+    if (!Number.isInteger(declared) || declared <= 0) return fail(411, 'length required');
+    if (declared > MAX_UPLOAD_BYTES) return fail(413, 'file too large');
 
-    // 文件名以 DO 里的登记为准，不让客户端在 PUT 时自己声明
+    // 文件名与体积以 DO 里的登记为准，不让客户端在 PUT 时自己声明
     const meta = await stub.fetch(`https://do/track-meta?trackId=${trackId}`);
     if (!meta.ok) return fail(404, 'no such track');
-    const { name } = (await meta.json()) as { name: string };
+    const { name, size } = (await meta.json()) as { name: string; size: number };
+    if (declared !== size) return fail(400, 'length does not match registration');
 
     try {
-      const size = await putTrack(env, code, trackId, name, request.body);
-      return json({ ok: true, size });
+      const written = await putTrack(env, code, trackId, name, request.body, declared);
+      return json({ ok: true, size: written });
     } catch (err) {
-      if ((err as Error).message === 'too large') return fail(413, 'file too large');
+      if ((err as Error).message === 'bad length') return fail(413, 'file too large');
       throw err;
     }
   }
@@ -230,8 +233,9 @@ export default {
     try {
       return withSecurity(await handle(request, env));
     } catch (err) {
-      // 只记状态，不把内部细节回给客户端（安全文档 §2.9）
-      console.error('unhandled', request.method, new URL(request.url).pathname, (err as Error).name);
+      // 只在服务端记录细节，不把内部信息回给客户端（安全文档 §2.9）
+      const e = err as Error;
+      console.error('unhandled', request.method, new URL(request.url).pathname, e.name, e.message);
       return withSecurity(fail(500, 'internal error'));
     }
   },

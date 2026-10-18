@@ -95,11 +95,11 @@ export class RoomDO implements DurableObject {
       case '/track-add':
         return this.addTrack(request);
       case '/track-meta': {
-        // 上传字节时用来决定 R2 的 customMetadata.name。
-        // 以 DO 里的登记为准，而不是让客户端在 PUT 时自己声明文件名。
+        // 上传字节时用来决定 R2 的 customMetadata.name，以及核对实际字节数。
+        // 以 DO 里的登记为准，而不是让客户端在 PUT 时自己声明。
         const track = this.room.tracks.find((t) => t.id === url.searchParams.get('trackId'));
         return track
-          ? Response.json({ ok: true, name: track.name })
+          ? Response.json({ ok: true, name: track.name, size: track.size })
           : new Response('no such track', { status: 404 });
       }
       case '/track-remove':

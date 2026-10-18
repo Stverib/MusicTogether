@@ -15,10 +15,15 @@ export function trackKey(roomCode: string, trackId: string): string {
 }
 
 /**
- * 流式写入 R2，同时累计字节数。
+ * 流式写入 R2。
  *
- * 不信任 Content-Length —— 它可以伪造或省略（安全文档 §2.7），
- * 所以上限必须在读取过程中累计判定。
+ * R2 的 put() 要求可读流有**已知长度**（"Provided readable stream must have a
+ * known length"），所以这里必须用 FixedLengthStream 包一层，而不能直接喂一个
+ * pipeThrough 出来的流。
+ *
+ * 这同时是一条安全边界：FixedLengthStream 会**强制**实际字节数恰好等于
+ * 声明值 —— 多了少了都会让流报错。调用方必须先确认这个 length 与登记时
+ * 声明的体积一致，否则配额会被少算。
  */
 export async function putTrack(
   env: Env,
@@ -26,35 +31,32 @@ export async function putTrack(
   trackId: string,
   filename: string,
   body: ReadableStream<Uint8Array>,
+  length: number,
 ): Promise<number> {
-  let total = 0;
-  let aborted = false;
+  if (!Number.isInteger(length) || length <= 0 || length > MAX_UPLOAD_BYTES) {
+    throw new Error('bad length');
+  }
 
-  const counted = body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        total += chunk.byteLength;
-        if (total > MAX_UPLOAD_BYTES) {
-          aborted = true;
-          controller.error(new Error('too large'));
-          return;
-        }
-        controller.enqueue(chunk);
-      },
-    }),
-  );
+  const fixed = new FixedLengthStream(length);
+  // 不 await：先把 readable 交给 R2，写入端并行推进
+  const pumping = body.pipeTo(fixed.writable).catch(() => {
+    // 长度不符导致的错误会同时反映在 put() 上，这里吞掉避免 unhandled rejection
+  });
 
   try {
-    // 注意：这里不写 httpMetadata.contentType —— 用户声明的 MIME 一律不进响应头。
-    // 文件名只进 customMetadata，出站类型由 audioMimeFor() 从它推导（安全文档 §2.2）
-    const obj = await env.BUCKET.put(trackKey(roomCode, trackId), counted, {
-      customMetadata: { name: filename.slice(0, 200) },
+    const obj = await env.BUCKET.put(trackKey(roomCode, trackId), fixed.readable, {
+      // customMetadata 会变成 HTTP 头，必须是 Latin-1 安全的 ——
+      // 中文文件名直接写进去会炸，所以先做 URI 编码。
+      // 出站 Content-Type 由 audioMimeFor() 从解码后的名字推导（安全文档 §2.2）
+      customMetadata: { name: encodeURIComponent(filename.slice(0, 200)) },
     });
-    return obj?.size ?? total;
+    await pumping;
+    return obj?.size ?? length;
   } catch (err) {
+    await pumping;
     // 半截对象不能留在桶里
     await env.BUCKET.delete(trackKey(roomCode, trackId)).catch(() => {});
-    throw aborted ? new Error('too large') : err;
+    throw err;
   }
 }
 
@@ -89,7 +91,15 @@ export async function streamTrack(
   // 文件名来自上传时写入的 customMetadata —— 同一次 get 就带回来了，不需要额外往返。
   // audioMimeFor 只输出白名单里的固定常量，所以哪怕文件名本身是恶意的，
   // 也无法让响应类型变成 text/html（安全文档 §2.2）
-  const filename = obj.customMetadata?.name ?? '';
+  let filename = '';
+  const rawName = obj.customMetadata?.name;
+  if (rawName) {
+    try {
+      filename = decodeURIComponent(rawName);
+    } catch {
+      filename = ''; // 编码坏了就退回 octet-stream，不影响可用性
+    }
+  }
 
   const headers = new Headers({
     'Content-Type': audioMimeFor(filename),
