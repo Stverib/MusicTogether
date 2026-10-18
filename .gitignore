@@ -7,3 +7,6 @@ test-results/
 playwright-report/
 *.log
 .DS_Store
+
+# 隔离工作区（EnterWorktree 用），别让它进仓库
+.claude/worktrees/
