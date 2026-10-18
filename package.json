@@ -1,0 +1,21 @@
+{
+  "name": "musictogether",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "和别人一起听同一首歌，进度条保持同步",
+  "scripts": {
+    "dev": "vite",
+    "dev:worker": "wrangler dev --port 8787",
+    "build": "vite build",
+    "deploy": "npm run build && wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.3",
+    "preact": "^11.0.1"
+  }
+}

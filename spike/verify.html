@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MusicTogether 能力验证</title>
+<style>
+  body { font: 16px/1.6 system-ui, sans-serif; margin: 0; padding: 16px; max-width: 720px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { margin: 28px 0 8px; font-size: 17px; }
+  .r { border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin: 8px 0; }
+  .ok { background: #e8f7e8; border-color: #4a4; }
+  .no { background: #fdeaea; border-color: #a44; }
+  .unk { background: #fdf6e3; border-color: #a83; }
+  button { font: inherit; padding: 10px 16px; margin: 4px 8px 4px 0; border-radius: 8px;
+           border: 1px solid #666; background: #f5f5f5; }
+  audio { width: 100%; margin-top: 8px; }
+  code { background: #eee; padding: 1px 5px; border-radius: 4px; }
+  .hint { color: #666; font-size: 14px; }
+  #log { font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap;
+         background: #f7f7f7; padding: 10px; border-radius: 8px; max-height: 220px; overflow: auto; }
+</style>
+
+<h1>MusicTogether 能力验证</h1>
+<p class="hint">在<strong>HarmonyOS 手机</strong>上用浏览器打开本页，从上到下逐个测。</p>
+
+<h2>R1 · 能不能播音频</h2>
+<div class="r" id="r1">点下面按钮。能听到一段 3 秒的提示音、且进度条在走，就算通过。</div>
+<button onclick="testPlay()">播放测试音</button>
+<audio id="a1" controls></audio>
+
+<h2>R1b · 能不能播一首真实的歌</h2>
+<div class="r" id="r1b">选一首本地 mp3。要能播、能拖动进度条。</div>
+<button onclick="document.getElementById('f1').click()">选择音频文件</button>
+<input type="file" id="f1" accept="audio/*" hidden>
+<audio id="a2" controls></audio>
+
+<h2>R2 · 能不能选到一个文件夹</h2>
+<div class="r" id="r2">点按钮，看弹出的选择器能不能选到手机里的音乐目录，以及能不能读出一批文件。</div>
+<button onclick="document.getElementById('f2').click()">选文件夹</button>
+<input type="file" id="f2" webkitdirectory multiple hidden>
+<button onclick="document.getElementById('f3').click()">多选文件（保底方案）</button>
+<input type="file" id="f3" accept="audio/*" multiple hidden>
+
+<h2>R3 · 锁屏 / 切后台还响不响</h2>
+<div class="r" id="r3">
+  回到上面点「播放测试音」，然后<strong>立刻锁屏</strong>，等 15 秒再解锁。
+  再重复一次，这次播着音<strong>切到别的 App</strong>，等 15 秒回来。
+  两种情况下声音都还在、进度条都往前走了，才算通过。
+</div>
+
+<h2>日志</h2>
+<div id="log"></div>
+
+<script>
+const log = (m) => {
+  const el = document.getElementById('log');
+  el.textContent += m + '\n';
+  el.scrollTop = el.scrollHeight;
+};
+const mark = (id, ok, text) => {
+  const el = document.getElementById(id);
+  el.className = 'r ' + (ok === null ? 'unk' : ok ? 'ok' : 'no');
+  if (text) el.textContent = text;
+};
+const startedAt = Date.now();
+log('UA: ' + navigator.userAgent);
+log('目录选择 API: ' + (window.showDirectoryPicker ? '有' : '没有'));
+log('Media Session API: ' + ('mediaSession' in navigator ? '有' : '没有'));
+log('storage.persist: ' + (navigator.storage && navigator.storage.persist ? '有' : '没有'));
+
+// ---- R1: 用 WebAudio 生成 3 秒正弦波，转成 wav 给 <audio> 播 ----
+function beepWav(seconds = 3, freq = 440) {
+  const rate = 44100, n = rate * seconds;
+  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const s = (o, str) => [...str].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  s(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); s(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); s(36, 'data');
+  v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.sin(i * freq * 2 * Math.PI / rate) * 0x6000, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+async function testPlay() {
+  const a = document.getElementById('a1');
+  a.src = URL.createObjectURL(beepWav());
+  try {
+    await a.play();
+    log('R1 play() 成功');
+    mark('r1', null, '正在播放…锁屏试试。回来看到进度条超过 3 秒即通过。');
+  } catch (e) {
+    log('R1 play() 失败: ' + e);
+    mark('r1', false, '播放失败：' + e.message);
+  }
+}
+
+document.getElementById('a1').addEventListener('ended', () => { mark('r1', true, '✅ R1 通过：音频正常播放到结束'); log('R1 播放完毕'); });
+document.getElementById('a1').addEventListener('timeupdate', (e) => {
+  if (e.target.currentTime > 2.5) mark('r1', true, '✅ R1 通过（锁屏也没断）');
+});
+
+// ---- R1b / R2: 真实文件 ----
+document.getElementById('f1').addEventListener('change', (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const a = document.getElementById('a2');
+  a.src = URL.createObjectURL(f);
+  log('选中: ' + f.name + ' ' + (f.size / 1048576).toFixed(1) + 'MB');
+  mark('r1b', null, '已加载 ' + f.name + '，点播放并拖动进度条。');
+});
+document.getElementById('a2').addEventListener('playing', () => mark('r1b', true, '✅ R1b 通过：本地文件可播放'));
+document.getElementById('a2').addEventListener('seeked', () => log('seek 到 ' + document.getElementById('a2').currentTime.toFixed(1) + 's'));
+
+document.getElementById('f2').addEventListener('change', (e) => {
+  const fs = [...e.target.files];
+  const audio = fs.filter(f => /\.(mp3|m4a|aac|flac|ogg|wav|opus|wma)$/i.test(f.name));
+  log(`R2 文件夹：共 ${fs.length} 个文件，其中音频 ${audio.length} 个`);
+  if (!fs.length) return mark('r2', false, '❌ 一个文件都没读到');
+  mark('r2', audio.length > 0, audio.length > 0
+    ? `✅ R2 通过：读到 ${audio.length} 首音频。示例：` + audio.slice(0, 5).map(f => f.name).join('、')
+    : '⚠️ 读到了文件但没有音频，可能选错目录');
+});
+document.getElementById('f3').addEventListener('change', (e) => {
+  log('R2 保底多选：' + e.target.files.length + ' 个文件');
+});
+
+// ---- R3: 切后台计时 ----
+let bg = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { bg = Date.now(); log('→ 进入后台'); }
+  else if (bg) {
+    const away = ((Date.now() - bg) / 1000).toFixed(1);
+    const a = document.getElementById('a1');
+    log(`← 回到前台，离开 ${away} 秒，音频当前时间 ${a.currentTime.toFixed(1)}s，paused=${a.paused}`);
+    mark('r3', !a.paused && a.currentTime > 0.5,
+      a.paused ? `❌ R3 失败：切后台 ${away} 秒后音频被暂停了` : '✅ R3 通过：后台回来了还在响');
+    bg = 0;
+  }
+});
+
+// ---- 顺手探路 ----
+log('WebSocket: ' + (typeof WebSocket !== 'undefined' ? '有' : '没有'));
+log('IndexedDB: ' + (typeof indexedDB !== 'undefined' ? '有' : '没有'));
+</script>
+</html>

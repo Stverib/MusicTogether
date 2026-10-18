@@ -1,0 +1,20 @@
+{
+  "name": "musictogether",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "RoomDO" },
+      { "name": "GUARD", "class_name": "GuardDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomDO", "GuardDO"] }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "musictogether-tracks" }],
+  "observability": { "enabled": true },
+  "vitest": {}
+}

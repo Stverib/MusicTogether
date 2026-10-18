@@ -1,0 +1,283 @@
+:root {
+  --bg: #141118;
+  --panel: #1e1a24;
+  --panel-2: #272130;
+  --line: #38303f;
+  --text: #ece7f2;
+  --muted: #9c93a8;
+  --accent: #b98cff;
+  --accent-ink: #1a1226;
+  --danger: #ff8a8a;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  padding: 0 0 env(safe-area-inset-bottom);
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 13px;
+}
+.error {
+  color: var(--danger);
+  font-size: 14px;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.spread {
+  justify-content: space-between;
+}
+
+button {
+  font: inherit;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+button.icon {
+  padding: 4px 8px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+}
+
+input[type='text'],
+input:not([type]) {
+  font: inherit;
+}
+
+input {
+  font: inherit;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  width: 100%;
+}
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ---------- 加入页 ---------- */
+
+.join {
+  max-width: 380px;
+  margin: 12vh auto 0;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.join label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* ---------- 房间 ---------- */
+
+.room {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 14px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.room > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 15px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.dot.open {
+  background: #6ee7a8;
+}
+.dot.connecting {
+  background: #ffd479;
+}
+.dot.closed {
+  background: var(--danger);
+}
+
+.banner {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.panel,
+.player {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.player .title {
+  font-size: 17px;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.seek {
+  width: 100%;
+  margin: 12px 0 4px;
+  accent-color: var(--accent);
+}
+
+.controls {
+  justify-content: center;
+  gap: 14px;
+  margin-top: 6px;
+}
+.controls button {
+  min-width: 52px;
+  font-size: 18px;
+}
+.controls .primary {
+  min-width: 68px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 8px;
+}
+.list li.current {
+  background: var(--panel-2);
+}
+.list .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list .idx {
+  color: var(--muted);
+  margin-right: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.picklist {
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 8px 0;
+}
+.picklist .name {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* ---------- 聊天 ---------- */
+
+.chat .messages {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat .messages li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.chat .messages li.mine {
+  align-items: flex-end;
+}
+.chat .who {
+  font-size: 12px;
+  color: var(--muted);
+}
+.chat .what {
+  background: var(--panel-2);
+  border-radius: 10px;
+  padding: 6px 10px;
+  max-width: 85%;
+  word-break: break-word;
+}
+.chat .mine .what {
+  background: var(--accent);
+  color: var(--accent-ink);
+}

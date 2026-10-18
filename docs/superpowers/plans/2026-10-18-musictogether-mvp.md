@@ -25,6 +25,27 @@
 - **不做**账号系统、公开分享、音频指纹、原生 App。
 - 提交信息用英文，遵循 Conventional Commits。
 
+### 安全约束（违反即不予合并，详见 `docs/security.md`）
+
+- **`trackId` 必须是严格 UUID** 才能拼进 R2 key；房间码必须先过 `isValidCode()`。
+  否则 `../../` 能读到别的房间的文件（§2.1）。
+- **出站 `Content-Type` 绝不回显用户提供的值**，一律由扩展名映射到白名单音频类型，
+  并带 `X-Content-Type-Options: nosniff`。否则上传 HTML 再直接访问流地址就是
+  同源存储型 XSS（§2.2）。
+- **WebSocket 升级必须校验 `Origin` 与部署域名一致**。WebSocket 不受同源策略与
+  SameSite 保护，是现成的 CSRF 通道（§2.3）。
+- **每个房间路由都必须校验 `session.room ===` 路径里的房间码**。签名只证明身份，
+  不证明权限（§2.5）。
+- **`SESSION_SECRET` 只经 `wrangler secret` 注入**，绝不进仓库（§2.9）。
+- **限速**：建房 10/分/IP、加入 20/分/IP、上传 60/分/IP。房间码有 10.7 亿种，
+  但只有配上限速才谈得上不可枚举（§2.4）。
+- **每房间配额**：最多 200 首、总计 2 GB（§2.7）。
+- **绝不 `innerHTML` / `dangerouslySetInnerHTML` / `eval`**。聊天与文件名是
+  攻击者可控的；Preact 默认转义，保持这个默认（§2.6）。
+- **不设置任何 CORS 头**，不放开 `Access-Control-Allow-Origin`。
+- **日志不打令牌、签名、Cookie 内容**。
+- **新增运行时依赖需要理由**；当前仅 `preact` 与 `@preact/signals`（§2.9）。
+
 ---
 
 ## 测试策略
@@ -53,9 +74,11 @@ MusicTogether/
 │  │  ├─ protocol.ts               # WS 消息类型定义与校验
 │  │  └─ types.ts                  # RoomState / Track / Member / Playback
 │  ├─ server/
-│  │  ├─ index.ts                  # Worker 入口：全部路由
+│  │  ├─ index.ts                  # Worker 入口：全部路由 + 安全响应头
 │  │  ├─ room.ts                   # RoomDO：房间的全部服务端逻辑
+│  │  ├─ guard.ts                  # GuardDO：按 IP 的滑动窗口限速
 │  │  ├─ session.ts                # HMAC 令牌签发与校验
+│  │  ├─ security.ts               # 安全闸门：UUID/房间码/Origin/MIME 白名单/CSP
 │  │  ├─ media.ts                  # R2 上传 / Range 流式读取 / 删除
 │  │  └─ env.ts                    # Env 类型
 │  └─ client/
@@ -346,10 +369,13 @@ npm i -D typescript vite @preact/preset-vite vitest @cloudflare/vitest-pool-work
     "run_worker_first": ["/api/*"]
   },
   "durable_objects": {
-    "bindings": [{ "name": "ROOMS", "class_name": "RoomDO" }]
+    "bindings": [
+      { "name": "ROOMS", "class_name": "RoomDO" },
+      { "name": "GUARD", "class_name": "GuardDO" }
+    ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["RoomDO"] }
+    { "tag": "v1", "new_sqlite_classes": ["RoomDO", "GuardDO"] }
   ],
   "r2_buckets": [
     { "binding": "BUCKET", "bucket_name": "musictogether-tracks" }
@@ -828,22 +854,32 @@ git commit -m "feat(shared): room code generation and playback anchor math"
 
 ---
 
-## Task 3: 会话令牌与 HTTP 路由骨架
+## Task 3: 安全闸门、会话令牌与 HTTP 路由骨架
+
+这一节把 `docs/security.md` §2.1 / §2.3 / §2.4 的对策落地。**先建安全闸门再建路由** ——
+顺序反了的话，后面每个路由都要回头补校验，一定会漏。
 
 **Files:**
-- Create: `src/server/session.ts`
-- Modify: `src/server/index.ts`
-- Test: `test/unit/session.test.ts`, `test/integration/routes.test.ts`
+- Create: `src/server/security.ts`, `src/server/guard.ts`, `src/server/session.ts`
+- Modify: `src/server/index.ts`, `src/server/env.ts`
+- Test: `test/unit/session.test.ts`, `test/unit/security.test.ts`, `test/integration/routes.test.ts`, `test/integration/ratelimit.test.ts`
 
 **Interfaces:**
 - Consumes: `codes.ts` 的 `generateCode` / `isValidCode` / `normalizeCode`
 - Produces:
+  - `isUuid(s: string): boolean`
+  - `audioMimeFor(filename: string): string`
+  - `originAllowed(request: Request): boolean`
+  - `withSecurity(response: Response): Response`
+  - `CSP: string`
   - `signSession(payload: SessionPayload, secret: string): Promise<string>`
   - `verifySession(token: string, secret: string, now?: number): Promise<SessionPayload | null>`
   - `type SessionPayload = { room: string; clientId: string; name: string; exp: number }`
   - `readSession(request: Request, secret: string): Promise<SessionPayload | null>`
-  - `sessionCookie(token: string, maxAgeSec: number): string`
+  - `sessionCookie(token: string, maxAgeSec: number, secure?: boolean): string`
   - `SESSION_COOKIE = 'mt_sess'`
+  - `class GuardDO`：路由 `POST /check` `{key, limit, windowMs}` → `{ok, retryAfter?}`
+  - `checkRate(env, key, limit, windowMs): Promise<{ ok: boolean; retryAfter?: number }>`
 
 - [ ] **Step 1: 写失败测试 `test/unit/session.test.ts`**
 
@@ -1007,14 +1043,367 @@ npx vitest run test/unit/session.test.ts
 
 预期：PASS，6 个用例。
 
-- [ ] **Step 5: 在 Worker 里接上路由骨架**
+- [ ] **Step 5: 写失败测试 `test/unit/security.test.ts`**
 
-`src/server/index.ts` 扩展为：
+```ts
+import { describe, it, expect } from 'vitest';
+import { isUuid, audioMimeFor, originAllowed, withSecurity, CSP } from '../../src/server/security';
+
+describe('isUuid', () => {
+  it('接受规范 UUID', () => {
+    expect(isUuid('123e4567-e89b-12d3-a456-426614174000')).toBe(true);
+    expect(isUuid(crypto.randomUUID())).toBe(true);
+  });
+
+  it('拒绝路径穿越与任何非 UUID 形态', () => {
+    for (const bad of [
+      '../../../etc/passwd',
+      '..%2f..%2fsecret',
+      'rooms/OTHER/tracks/x',
+      '123e4567-e89b-12d3-a456-42661417400',      // 少一位
+      '123e4567-e89b-12d3-a456-4266141740000',    // 多一位
+      '123E4567-E89B-12D3-A456-426614174000',     // 大写不接受
+      '',
+      '.',
+      '..',
+    ]) {
+      expect(isUuid(bad)).toBe(false);
+    }
+  });
+});
+
+describe('audioMimeFor', () => {
+  it('白名单内的扩展名映射到正确的音频类型', () => {
+    expect(audioMimeFor('晴天.mp3')).toBe('audio/mpeg');
+    expect(audioMimeFor('A.FLAC')).toBe('audio/flac');
+    expect(audioMimeFor('b.m4a')).toBe('audio/mp4');
+  });
+
+  it('未知扩展名一律退回 octet-stream，绝不回显用户内容', () => {
+    expect(audioMimeFor('evil.html')).toBe('application/octet-stream');
+    expect(audioMimeFor('evil.svg')).toBe('application/octet-stream');
+    expect(audioMimeFor('noext')).toBe('application/octet-stream');
+    expect(audioMimeFor('')).toBe('application/octet-stream');
+  });
+
+  it('只看最后一个点之后的扩展名', () => {
+    expect(audioMimeFor('my.mp3.html')).toBe('application/octet-stream');
+    expect(audioMimeFor('01. 晴天.mp3')).toBe('audio/mpeg');
+  });
+});
+
+describe('originAllowed', () => {
+  const mk = (origin: string | null, url = 'https://app.example.com/api/rooms/X/ws') => {
+    const headers = new Headers();
+    if (origin !== null) headers.set('Origin', origin);
+    return new Request(url, { headers });
+  };
+
+  it('同源放行', () => {
+    expect(originAllowed(mk('https://app.example.com'))).toBe(true);
+  });
+
+  it('跨站拒绝（防 WebSocket CSRF）', () => {
+    expect(originAllowed(mk('https://evil.com'))).toBe(false);
+    expect(originAllowed(mk('http://app.example.com'))).toBe(false);   // 协议不同
+    expect(originAllowed(mk('https://app.example.com.evil.com'))).toBe(false);
+    expect(originAllowed(mk('https://app.example.com:8443'))).toBe(false); // 端口不同
+  });
+
+  it('缺失或畸形的 Origin 一律拒绝', () => {
+    expect(originAllowed(mk(null))).toBe(false);
+    expect(originAllowed(mk('not a url'))).toBe(false);
+    expect(originAllowed(mk(''))).toBe(false);
+  });
+});
+
+describe('withSecurity', () => {
+  it('补上全部安全响应头', async () => {
+    const out = withSecurity(new Response('hi'));
+    expect(out.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(out.headers.get('Referrer-Policy')).toBe('no-referrer');
+    expect(out.headers.get('X-Frame-Options')).toBe('DENY');
+    expect(out.headers.get('Content-Security-Policy')).toBe(CSP);
+    expect(await out.text()).toBe('hi');
+  });
+
+  it('不覆盖已有响应头，也不改变状态码', () => {
+    const out = withSecurity(new Response('x', { status: 404, headers: { 'X-Custom': 'kept' } }));
+    expect(out.status).toBe(404);
+    expect(out.headers.get('X-Custom')).toBe('kept');
+  });
+
+  it('CSP 不含 unsafe-eval，且禁止内联脚本', () => {
+    expect(CSP).not.toContain('unsafe-eval');
+    expect(CSP).toContain("script-src 'self'");
+    expect(CSP).toContain("frame-ancestors 'none'");
+  });
+
+  it('碰到 WebSocket 升级响应（101）原样返回，不重新包装', () => {
+    const upgrade = new Response(null, { status: 101 });
+    expect(withSecurity(upgrade).status).toBe(101);
+  });
+});
+```
+
+- [ ] **Step 6: 运行，确认失败**
+
+```bash
+npx vitest run --project unit test/unit/security.test.ts
+```
+
+预期：FAIL —— 无法解析 `src/server/security`。
+
+- [ ] **Step 7: 写 `src/server/security.ts`**
+
+```ts
+import { isValidCode } from '../shared/codes';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * 严格 UUID 校验。任何会被拼进 R2 key 的路径片段都必须先过这一关，
+ * 否则 `../../` 就能读到别的房间的文件。见 docs/security.md §2.1。
+ */
+export function isUuid(s: string): boolean {
+  return UUID_RE.test(s);
+}
+
+/**
+ * 出站 Content-Type 白名单。
+ * 用户的 MIME 声明只用于存储元数据，绝不直接成为响应头 ——
+ * 否则上传一个 HTML 再直接访问流地址就是同源存储型 XSS。见 §2.2。
+ */
+const AUDIO_MIME: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  wav: 'audio/wav',
+  wma: 'audio/x-ms-wma',
+};
+
+export function audioMimeFor(filename: string): string {
+  const dot = filename.lastIndexOf('.');
+  if (dot < 0) return 'application/octet-stream';
+  return AUDIO_MIME[filename.slice(dot + 1).toLowerCase()] ?? 'application/octet-stream';
+}
+
+/**
+ * Origin 与部署主机一致才放行。
+ * WebSocket 握手不受同源策略与 SameSite 保护，不校验就是现成的 CSRF 通道。见 §2.3。
+ */
+export function originAllowed(request: Request): boolean {
+  const origin = request.headers.get('Origin');
+  if (!origin) return false;
+  try {
+    return new URL(origin).host === new URL(request.url).host;
+  } catch {
+    return false;
+  }
+}
+
+export const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "connect-src 'self' ws: wss:",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+/**
+ * 给响应补上安全响应头。只在 Worker 最外层调用一次。
+ * `Referrer-Policy: no-referrer` 尤其重要：房间码在 URL 路径里，
+ * 任何外链跳转都会把它放进 Referer 泄漏出去。
+ */
+export function withSecurity(response: Response): Response {
+  // 101 是 WebSocket 升级响应，重新包装会破坏它
+  if (response.status === 101 || response.webSocket) return response;
+
+  const headers = new Headers(response.headers);
+  headers.set('Content-Security-Policy', CSP);
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Referrer-Policy', 'no-referrer');
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+/** 房间码校验的统一入口，避免各处手写 */
+export function isRoomCode(raw: string): boolean {
+  return isValidCode(raw);
+}
+```
+
+- [ ] **Step 8: 运行，确认通过**
+
+```bash
+npx vitest run --project unit test/unit/security.test.ts
+```
+
+预期：PASS，12 个用例。
+
+- [ ] **Step 9: 写 `src/server/guard.ts`（限速）**
+
+```ts
+import type { Env } from './env';
+
+export type RateVerdict = { ok: boolean; retryAfter?: number };
+
+/**
+ * 全局限速。房间码有 32^6 ≈ 10.7 亿种，只有配上限速才谈得上不可枚举。
+ * 见 docs/security.md §2.4。
+ *
+ * 这是纵深防御，不是保证：按 IP 限速可以被代理池绕过。
+ * 若项目将来对外开放，需要换成 Cloudflare 的 Rate Limiting 产品 + WAF。
+ */
+export class GuardDO implements DurableObject {
+  /** 滑动窗口。DO 被驱逐后窗口归零 —— 降级为"限速短暂失效"，不是永久失效 */
+  private hits = new Map<string, number[]>();
+
+  constructor(private state: DurableObjectState) {}
+
+  async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname !== '/check') {
+      return new Response('not found', { status: 404 });
+    }
+
+    const { key, limit, windowMs } = (await request.json()) as {
+      key: string;
+      limit: number;
+      windowMs: number;
+    };
+
+    const now = Date.now();
+    const cutoff = now - windowMs;
+    const recent = (this.hits.get(key) ?? []).filter((t) => t > cutoff);
+
+    if (recent.length >= limit) {
+      this.hits.set(key, recent);
+      const retryAfter = Math.max(1, Math.ceil((recent[0]! + windowMs - now) / 1000));
+      return Response.json({ ok: false, retryAfter }, { status: 429 });
+    }
+
+    recent.push(now);
+    this.hits.set(key, recent);
+    if (this.hits.size > 10_000) this.sweep(cutoff);
+    return Response.json({ ok: true });
+  }
+
+  private sweep(cutoff: number): void {
+    for (const [k, v] of this.hits) {
+      const kept = v.filter((t) => t > cutoff);
+      if (kept.length) this.hits.set(k, kept);
+      else this.hits.delete(k);
+    }
+  }
+}
+
+/** 在 Worker 里调用的入口。key 里应带上操作类型与来源 IP。 */
+export async function checkRate(
+  env: Env,
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<RateVerdict> {
+  const stub = env.GUARD.get(env.GUARD.idFromName('global'));
+  const res = await stub.fetch('https://guard/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, limit, windowMs }),
+  });
+  if (res.status === 429) {
+    const body = (await res.json()) as { retryAfter?: number };
+    return { ok: false, retryAfter: body.retryAfter ?? 60 };
+  }
+  return { ok: res.ok };
+}
+
+/** 取调用方 IP。本地 wrangler dev 可能没有这个头。 */
+export function clientIp(request: Request): string {
+  return request.headers.get('CF-Connecting-IP') ?? request.headers.get('X-Forwarded-For') ?? 'local';
+}
+```
+
+同时在 `src/server/env.ts` 加上 GuardDO 绑定：
+
+```ts
+export interface Env {
+  ROOMS: DurableObjectNamespace<import('./room').RoomDO>;
+  GUARD: DurableObjectNamespace<import('./guard').GuardDO>;
+  BUCKET: R2Bucket;
+  SESSION_SECRET: string;
+}
+```
+
+- [ ] **Step 10: 写失败测试 `test/integration/ratelimit.test.ts`**
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { SELF } from 'cloudflare:test';
+
+describe('限速', () => {
+  it('建房超过 10 次/分钟后返回 429 且带 Retry-After', async () => {
+    const results: number[] = [];
+    for (let i = 0; i < 14; i++) {
+      const res = await SELF.fetch('https://example.com/api/rooms', { method: 'POST' });
+      results.push(res.status);
+      if (res.status === 429) {
+        expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0);
+      }
+    }
+    expect(results.filter((s) => s === 200).length).toBeLessThanOrEqual(10);
+    expect(results).toContain(429);
+  });
+
+  it('加入房间的探测次数有限，挡住房间码枚举', async () => {
+    let sawTooMany = false;
+    for (let i = 0; i < 30; i++) {
+      const res = await SELF.fetch('https://example.com/api/rooms/ZZZZZZ/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: '攻击者' }),
+      });
+      if (res.status === 429) { sawTooMany = true; break; }
+    }
+    expect(sawTooMany).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 11: 运行，确认失败**
+
+```bash
+npx vitest run --project integration test/integration/ratelimit.test.ts
+```
+
+预期：FAIL —— 路由还没接上限速。
+
+- [ ] **Step 12: 在 Worker 里接上路由骨架（含安全闸门）**
+
+`src/server/index.ts`：
 
 ```ts
 import type { Env } from './env';
 import { generateCode, isValidCode, normalizeCode } from '../shared/codes';
-import { readSession, signSession, sessionCookie, clearSessionCookie } from './session';
+import { readSession, signSession, sessionCookie } from './session';
+import { checkRate, clientIp } from './guard';
+import { isRoomCode, originAllowed, withSecurity } from './security';
+
+const CREATE_LIMIT = { limit: 10, windowMs: 60_000 };
+const JOIN_LIMIT = { limit: 20, windowMs: 60_000 };
+const UPLOAD_LIMIT = { limit: 60, windowMs: 60_000 };
 
 function json(data: unknown, init?: ResponseInit): Response {
   return Response.json(data, init);
@@ -1024,68 +1413,129 @@ function fail(status: number, message: string): Response {
   return json({ error: message }, { status });
 }
 
+async function guarded(
+  env: Env,
+  request: Request,
+  bucket: string,
+  cfg: { limit: number; windowMs: number },
+): Promise<Response | null> {
+  const verdict = await checkRate(env, `${bucket}:${clientIp(request)}`, cfg.limit, cfg.windowMs);
+  if (verdict.ok) return null;
+  return json(
+    { error: 'too many requests' },
+    { status: 429, headers: { 'Retry-After': String(verdict.retryAfter ?? 60) } },
+  );
+}
+
+async function handle(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const path = url.pathname;
+
+  if (!path.startsWith('/api/')) return new Response('not found', { status: 404 });
+
+  if (path === '/api/health') return json({ ok: true, at: Date.now() });
+
+  if (path === '/api/me') {
+    const session = await readSession(request, env.SESSION_SECRET);
+    return session ? json({ session }) : fail(401, 'no session');
+  }
+
+  if (path === '/api/rooms' && request.method === 'POST') {
+    const limited = await guarded(env, request, 'create', CREATE_LIMIT);
+    if (limited) return limited;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = generateCode();
+      const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
+      const res = await stub.fetch(`https://do/init?code=${code}`, { method: 'POST' });
+      if (res.ok) return json({ code });
+    }
+    return fail(503, 'could not allocate a room code');
+  }
+
+  const roomMatch = path.match(/^\/api\/rooms\/([^/]+)(\/.*)?$/);
+  if (roomMatch) {
+    const code = normalizeCode(roomMatch[1]!);
+    if (!isRoomCode(code)) return fail(400, 'bad room code');
+    const rest = roomMatch[2] ?? '';
+
+    if (rest === '/join' && request.method === 'POST') {
+      const limited = await guarded(env, request, 'join', JOIN_LIMIT);
+      if (limited) return limited;
+
+      const body = (await request.json().catch(() => ({}))) as { name?: string; clientId?: string };
+      const name = (body.name ?? '').trim().slice(0, 24) || '匿名';
+      const clientId = body.clientId?.trim() || crypto.randomUUID();
+
+      const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
+      const exists = await stub.fetch('https://do/exists');
+      if (!exists.ok) return fail(404, '房间不存在');
+
+      const token = await signSession(
+        { room: code, clientId, name, exp: Date.now() + 30 * 864e5 },
+        env.SESSION_SECRET,
+      );
+      return json(
+        { clientId, room: code },
+        { headers: { 'Set-Cookie': sessionCookie(token, 30 * 86400, url.protocol === 'https:') } },
+      );
+    }
+
+    const session = await readSession(request, env.SESSION_SECRET);
+    if (!session || session.room !== code) return fail(401, 'not a member of this room');
+
+    // WebSocket 握手不受同源策略保护，必须单独校验 Origin
+    if (rest === '/ws' && !originAllowed(request)) return fail(403, 'bad origin');
+
+    return fail(501, `not implemented: ${request.method} ${rest}`);
+  }
+
+  return fail(404, 'no such route');
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    if (!path.startsWith('/api/')) return new Response('not found', { status: 404 });
-
-    if (path === '/api/health') return json({ ok: true, at: Date.now() });
-
-    if (path === '/api/me') {
-      const session = await readSession(request, env.SESSION_SECRET);
-      return session ? json({ session }) : fail(401, 'no session');
+    try {
+      return withSecurity(await handle(request, env));
+    } catch (err) {
+      // 只记状态，不把内部细节回给客户端
+      console.error('unhandled', request.method, new URL(request.url).pathname, (err as Error).name);
+      return withSecurity(fail(500, 'internal error'));
     }
-
-    // 创建房间：生成一个未被占用的码
-    if (path === '/api/rooms' && request.method === 'POST') {
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const code = generateCode();
-        const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
-        const res = await stub.fetch(`https://do/init?code=${code}`, { method: 'POST' });
-        if (res.ok) return json({ code });
-      }
-      return fail(503, 'could not allocate a room code');
-    }
-
-    const roomMatch = path.match(/^\/api\/rooms\/([^/]+)(\/.*)?$/);
-    if (roomMatch) {
-      const code = normalizeCode(roomMatch[1]!);
-      if (!isValidCode(code)) return fail(400, 'bad room code');
-      const rest = roomMatch[2] ?? '';
-
-      if (rest === '/join' && request.method === 'POST') {
-        const body = (await request.json().catch(() => ({}))) as { name?: string; clientId?: string };
-        const name = (body.name ?? '').trim().slice(0, 24) || '匿名';
-        const clientId = body.clientId?.trim() || crypto.randomUUID();
-        const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
-        const exists = await stub.fetch(`https://do/exists`);
-        if (!exists.ok) return fail(404, '房间不存在');
-
-        const token = await signSession({ room: code, clientId, name, exp: Date.now() + 30 * 864e5 }, env.SESSION_SECRET);
-        return json(
-          { clientId, room: code },
-          { headers: { 'Set-Cookie': sessionCookie(token, 30 * 86400) } },
-        );
-      }
-
-      // 其余房间内路由统一交给 DO 或 R2，后续 Task 逐一实现
-      const session = await readSession(request, env.SESSION_SECRET);
-      if (!session || session.room !== code) return fail(401, 'not a member of this room');
-      return fail(501, `not implemented: ${request.method} ${rest}`);
-    }
-
-    return fail(404, 'no such route');
   },
 } satisfies ExportedHandler<Env>;
 ```
 
-- [ ] **Step 6: 写失败测试 `test/integration/routes.test.ts`**
+`sessionCookie` 增加第三个参数 `secure`（生产必须为 true）：
+
+```ts
+export function sessionCookie(token: string, maxAgeSec = DEFAULT_TTL_SEC, secure = true): string {
+  // Secure 由调用方按协议决定：http://localhost 开发时浏览器不会种 Secure Cookie
+  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
+}
+```
+
+- [ ] **Step 13: 运行限速测试，确认通过**
+
+```bash
+npx vitest run --project integration test/integration/ratelimit.test.ts
+```
+
+预期：PASS，2 个用例。
+
+**若「建房超过 10 次」不通过**：说明限速没生效，检查 `wrangler.jsonc` 里 `GUARD` 绑定与 `new_sqlite_classes` 是否都写了 `GuardDO`。
+
+- [ ] **Step 14: 写失败测试 `test/integration/routes.test.ts`**
 
 ```ts
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
+
+async function newRoom(): Promise<string> {
+  const res = await SELF.fetch('https://example.com/api/rooms', { method: 'POST' });
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { code: string }).code;
+}
 
 describe('HTTP 路由', () => {
   it('/api/health 返回 ok', async () => {
@@ -1095,14 +1545,12 @@ describe('HTTP 路由', () => {
   });
 
   it('创建房间返回合法房间码，且房间随即存在', async () => {
-    const res = await SELF.fetch('https://example.com/api/rooms', { method: 'POST' });
-    expect(res.status).toBe(200);
-    const { code } = await res.json() as { code: string };
+    const code = await newRoom();
     expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{6}$/);
 
     const join = await SELF.fetch(`https://example.com/api/rooms/${code}/join`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: 'https://example.com' },
       body: JSON.stringify({ name: '阿甲' }),
     });
     expect(join.status).toBe(200);
@@ -1111,19 +1559,18 @@ describe('HTTP 路由', () => {
   it('加入不存在的房间返回 404', async () => {
     const res = await SELF.fetch('https://example.com/api/rooms/ZZZZZZ/join', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: 'https://example.com' },
       body: JSON.stringify({ name: '阿甲' }),
     });
     expect(res.status).toBe(404);
   });
 
   it('房间码大小写与易混字符都能正确解析', async () => {
-    const created = await SELF.fetch('https://example.com/api/rooms', { method: 'POST' });
-    const { code } = await created.json() as { code: string };
+    const code = await newRoom();
     const sloppy = code.toLowerCase().split('').join(' ');
     const res = await SELF.fetch(`https://example.com/api/rooms/${encodeURIComponent(sloppy)}/join`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: 'https://example.com' },
       body: JSON.stringify({ name: '阿乙' }),
     });
     expect(res.status).toBe(200);
@@ -1135,15 +1582,16 @@ describe('HTTP 路由', () => {
   });
 
   it('加入后拿到会话 Cookie，/api/me 能读到身份', async () => {
-    const created = await SELF.fetch('https://example.com/api/rooms', { method: 'POST' });
-    const { code } = await created.json() as { code: string };
+    const code = await newRoom();
     const join = await SELF.fetch(`https://example.com/api/rooms/${code}/join`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: 'https://example.com' },
       body: JSON.stringify({ name: '阿甲' }),
     });
     const cookie = join.headers.get('Set-Cookie')!;
     expect(cookie).toContain('mt_sess=');
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Lax');
 
     const me = await SELF.fetch('https://example.com/api/me', { headers: { Cookie: cookie } });
     expect(me.status).toBe(200);
@@ -1151,40 +1599,74 @@ describe('HTTP 路由', () => {
   });
 
   it('没有会话时访问房间内路由返回 401', async () => {
-    const res = await SELF.fetch('https://example.com/api/rooms/K7M2QX/state');
-    expect(res.status).toBe(401);
+    expect((await SELF.fetch('https://example.com/api/rooms/K7M2QX/state')).status).toBe(401);
+  });
+
+  it('跨站 Origin 的 WebSocket 升级被拒绝', async () => {
+    const code = await newRoom();
+    const join = await SELF.fetch(`https://example.com/api/rooms/${code}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://example.com' },
+      body: JSON.stringify({ name: '阿甲' }),
+    });
+    const cookie = join.headers.get('Set-Cookie')!.split(';')[0]!;
+
+    const res = await SELF.fetch(`https://example.com/api/rooms/${code}/ws`, {
+      headers: { Upgrade: 'websocket', Cookie: cookie, Origin: 'https://evil.com' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('缺失 Origin 的 WebSocket 升级也被拒绝', async () => {
+    const code = await newRoom();
+    const join = await SELF.fetch(`https://example.com/api/rooms/${code}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://example.com' },
+      body: JSON.stringify({ name: '阿甲' }),
+    });
+    const cookie = join.headers.get('Set-Cookie')!.split(';')[0]!;
+
+    const res = await SELF.fetch(`https://example.com/api/rooms/${code}/ws`, {
+      headers: { Upgrade: 'websocket', Cookie: cookie },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('所有响应都带安全头', async () => {
+    const res = await SELF.fetch('https://example.com/api/health');
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(res.headers.get('Referrer-Policy')).toBe('no-referrer');
+    expect(res.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
+  });
+
+  it('不发 CORS 头', async () => {
+    const res = await SELF.fetch('https://example.com/api/health', {
+      headers: { Origin: 'https://evil.com' },
+    });
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 });
 ```
 
-- [ ] **Step 7: 补齐测试环境配置并运行**
+- [ ] **Step 15: 补齐测试环境配置并运行**
 
-需要 `test/tsconfig.json` 引入 `@cloudflare/vitest-pool-workers` 的类型：
-
-```json
-{
-  "extends": "../tsconfig.json",
-  "compilerOptions": { "types": ["@cloudflare/vitest-pool-workers"] }
-}
-```
-
-并在 `wrangler.jsonc` 顶层加：
+在 `wrangler.jsonc` 顶层加：
 
 ```jsonc
 "vitest": {}
 ```
 
 ```bash
-npx vitest run test/integration/routes.test.ts
+npx vitest run --project integration test/integration/routes.test.ts
 ```
 
-预期：**FAIL** —— `/init` 与 `/exists` 尚未实现（`RoomDO` 还不存在），多个用例会因 500/404 失败。这是预期的，Task 4 会让它们通过。
+预期：**FAIL** —— `/init` 与 `/exists` 尚未实现（`RoomDO` 还不存在），部分用例会因 500/404 失败。这是预期的，Task 4 会让它们通过。上面这些安全相关的用例（Origin 被拒、安全头、无 CORS）应当**立刻通过**。
 
-- [ ] **Step 8: 提交（保留红灯）**
+- [ ] **Step 16: 提交（保留红灯）**
 
 ```bash
 git add src/server test vitest.config.ts wrangler.jsonc
-git commit -m "feat(server): session signing and HTTP route skeleton"
+git commit -m "feat(server): security gates, rate limiting, session signing and route skeleton"
 ```
 
 ---
@@ -2050,6 +2532,79 @@ describe('上传', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('上传的安全约束', () => {
+  it('非 UUID 的 trackId 不能写入 R2（防路径穿越）', async () => {
+    const { code, cookie } = await setup();
+    for (const bad of ['..%2F..%2Fsecret', 'not-a-uuid', 'a'.repeat(40)]) {
+      const res = await SELF.fetch(
+        `https://example.com/api/rooms/${code}/tracks/${encodeURIComponent(bad)}/blob`,
+        { method: 'PUT', body: fakeSong(16), headers: { Cookie: cookie } },
+      );
+      expect(res.status).toBe(400);
+    }
+    // 桶里不应该多出任何东西
+    const listed = await env.BUCKET.list({ prefix: `rooms/${code}/` });
+    expect(listed.objects).toHaveLength(0);
+  });
+
+  it('只有上传者能删云端文件', async () => {
+    const { code, cookie } = await setup();
+    const init = await SELF.fetch(`https://example.com/api/rooms/${code}/tracks`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ name: 'a.mp3', size: 16, mime: 'audio/mpeg' }),
+    });
+    const { trackId, uploadUrl } = (await init.json()) as any;
+    await SELF.fetch(uploadUrl, { method: 'PUT', body: fakeSong(16), headers: { Cookie: cookie } });
+
+    // 另一个人加入同一个房间
+    const other = await SELF.fetch(`https://example.com/api/rooms/${code}/join`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '阿乙' }),
+    });
+    const otherCookie = other.headers.get('Set-Cookie')!.split(';')[0]!;
+
+    const denied = await SELF.fetch(`https://example.com/api/rooms/${code}/tracks/${trackId}`, {
+      method: 'DELETE', headers: { Cookie: otherCookie },
+    });
+    expect(denied.status).toBe(403);
+    expect(await env.BUCKET.get(`rooms/${code}/tracks/${trackId}`)).not.toBeNull();
+
+    const allowed = await SELF.fetch(`https://example.com/api/rooms/${code}/tracks/${trackId}`, {
+      method: 'DELETE', headers: { Cookie: cookie },
+    });
+    expect(allowed.status).toBe(200);
+    expect(await env.BUCKET.get(`rooms/${code}/tracks/${trackId}`)).toBeNull();
+  });
+
+  it('超过房间曲目数配额时拒绝登记', async () => {
+    const { code, cookie } = await setup();
+    for (let i = 0; i < 200; i++) {
+      const res = await SELF.fetch(`https://example.com/api/rooms/${code}/tracks`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ name: `t${i}.mp3`, size: 16, mime: 'audio/mpeg' }),
+      });
+      expect(res.status).toBe(200);
+    }
+    const overflow = await SELF.fetch(`https://example.com/api/rooms/${code}/tracks`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ name: 'overflow.mp3', size: 16, mime: 'audio/mpeg' }),
+    });
+    expect(overflow.status).toBe(413);
+  });
+
+  it('上传接口本身也受限速保护', async () => {
+    const { code, cookie } = await setup();
+    let sawTooMany = false;
+    for (let i = 0; i < 80; i++) {
+      const res = await SELF.fetch(`https://example.com/api/rooms/${code}/tracks`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ name: `t${i}.mp3`, size: 16, mime: 'audio/mpeg' }),
+      });
+      if (res.status === 429) { sawTooMany = true; break; }
+    }
+    expect(sawTooMany).toBe(true);
+  });
+});
 ```
 
 - [ ] **Step 2: 运行，确认失败**
@@ -2064,41 +2619,83 @@ npx vitest run test/integration/media.test.ts
 
 ```ts
 import type { Env } from './env';
+import { audioMimeFor, isUuid } from './security';
 
-/** Worker 请求体上限 100 MB（挂在 Zone 计划上，免费/Pro 相同） */
+/** 单文件上限。Workers 请求体的硬上限就是 100 MB（挂在 Zone 计划上） */
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
+/** 每房间配额（安全文档 §2.7）：防止拿到一个房间码就把 R2 免费额度填满 */
+export const MAX_TRACKS_PER_ROOM = 200;
+export const MAX_ROOM_BYTES = 2 * 1024 * 1024 * 1024;
+
 export function trackKey(roomCode: string, trackId: string): string {
+  // 双保险：调用方已经校验过，这里再挡一次，避免将来有人绕过
+  if (!isUuid(trackId)) throw new Error('bad track id');
   return `rooms/${roomCode}/tracks/${trackId}`;
 }
 
+/**
+ * 流式写入 R2，同时累计字节数。
+ * 不用 Content-Length —— 它可以伪造或省略（安全文档 §2.7）。
+ * 超限时抛出，由调用方删除半截对象。
+ */
 export async function putTrack(
   env: Env,
   roomCode: string,
   trackId: string,
-  body: ReadableStream,
-  mime: string,
+  body: ReadableStream<Uint8Array>,
 ): Promise<number> {
-  const obj = await env.BUCKET.put(trackKey(roomCode, trackId), body, {
-    httpMetadata: { contentType: mime || 'application/octet-stream' },
-  });
-  return obj?.size ?? 0;
+  let total = 0;
+  let aborted = false;
+
+  const counted = body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        total += chunk.byteLength;
+        if (total > MAX_UPLOAD_BYTES) {
+          aborted = true;
+          controller.error(new Error('too large'));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+
+  try {
+    // 注意：这里不写 httpMetadata.contentType —— 用户声明的 MIME 一律不进响应头，
+    // 出站类型由 audioMimeFor(文件名) 决定（安全文档 §2.2）
+    const obj = await env.BUCKET.put(trackKey(roomCode, trackId), counted);
+    return obj?.size ?? total;
+  } catch (err) {
+    // 半截对象不能留在桶里
+    await env.BUCKET.delete(trackKey(roomCode, trackId)).catch(() => {});
+    throw aborted ? new Error('too large') : err;
+  }
 }
 
 export async function deleteTrack(env: Env, roomCode: string, trackId: string): Promise<void> {
+  if (!isUuid(trackId)) return;
   await env.BUCKET.delete(trackKey(roomCode, trackId));
 }
 
 /**
  * 流式返回 R2 对象，支持 Range。
- * 两个必须自己做的事：流式转发（内存 128 MB）与手写 206/Content-Range（R2 API 不产出）。
+ *
+ * 三件必须自己做的事：
+ * 1. 流式转发（Worker 内存只有 128 MB）
+ * 2. 手写 206 / Content-Range（R2 的 Worker API 不产出）
+ * 3. 强制 Content-Type 为白名单值（安全文档 §2.2，否则是存储型 XSS）
  */
 export async function streamTrack(
   env: Env,
   roomCode: string,
   trackId: string,
+  filename: string,
   request: Request,
 ): Promise<Response> {
+  if (!isUuid(trackId)) return new Response('bad track id', { status: 400 });
+
   const rangeHeader = request.headers.get('Range');
   const obj = await env.BUCKET.get(trackKey(roomCode, trackId), {
     range: rangeHeader ? request.headers : undefined,
@@ -2106,26 +2703,39 @@ export async function streamTrack(
   });
   if (!obj) return new Response('not found', { status: 404 });
 
-  const headers = new Headers();
-  obj.writeHttpMetadata(headers);
-  headers.set('ETag', obj.httpEtag);
-  headers.set('Accept-Ranges', 'bytes');
-  headers.set('Cache-Control', 'private, max-age=3600');
+  const headers = new Headers({
+    // 绝不回显用户提供的 MIME：未知扩展名会退回 application/octet-stream
+    'Content-Type': audioMimeFor(filename),
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Disposition': 'inline',
+    'Accept-Ranges': 'bytes',
+    'ETag': obj.httpEtag,
+    'Cache-Control': 'private, max-age=3600',
+  });
 
-  // 没有 Range 请求，整体返回
-  if (!rangeHeader || !('range' in obj) || !obj.range) {
+  if (!rangeHeader || !obj.range) {
     headers.set('Content-Length', String(obj.size));
     return new Response(obj.body, { status: 200, headers });
   }
 
-  const range = obj.range as { offset: number; length: number };
-  const start = range.offset;
-  const end = range.offset + range.length - 1;
+  const start = obj.range.offset;
+  const end = obj.range.offset + obj.range.length - 1;
   headers.set('Content-Range', `bytes ${start}-${end}/${obj.size}`);
-  headers.set('Content-Length', String(range.length));
+  headers.set('Content-Length', String(obj.range.length));
   return new Response(obj.body, { status: 206, headers });
 }
 ```
+
+**`filename` 从哪来**：`<audio>` 的 URL 带上文件名作查询参数 ——
+`/api/rooms/K7M2QX/tracks/<uuid>/stream?n=晴天.mp3`。
+
+这**不构成安全弱点**，因为 `audioMimeFor` 的输出只可能是白名单里的那几个固定常量之一。
+攻击者篡改 `?n=` 最多让自己拿到一个错误的音频类型（浏览器解码失败而已），
+**无法让响应头变成 `text/html`** —— 而后者才是 XSS 的充要条件。文件本身的访问
+控制由房间码 + UUID 路径承担，与这个参数无关。这一点在评审时要能说清楚。
+
+（另一个方案是流式端点先问一次 DO 拿文件名。但那会给每个 Range 请求加一次 DO 往返，
+浏览器为一首歌会发几十个 Range 请求，成本放大几十倍。不值得。）
 
 - [ ] **Step 4: 在 RoomDO 加曲目登记与移除路由**
 
@@ -2142,6 +2752,16 @@ export async function streamTrack(
   private async addTrack(request: Request): Promise<Response> {
     const body = (await request.json()) as Partial<Track>;
     const room = this.room!;
+
+    // 安全文档 §2.7：每房间配额。否则拿到一个房间码就能把 R2 免费额度填满。
+    if (room.tracks.length >= MAX_TRACKS_PER_ROOM) {
+      return new Response('room is full', { status: 413 });
+    }
+    const usedBytes = room.tracks.reduce((sum, t) => sum + t.size, 0);
+    if (usedBytes + Number(body.size ?? 0) > MAX_ROOM_BYTES) {
+      return new Response('room storage quota exceeded', { status: 413 });
+    }
+
     const track: Track = {
       id: body.id!,
       name: String(body.name ?? '未命名').slice(0, 200),
@@ -2184,12 +2804,26 @@ export async function streamTrack(
 ```ts
       const trackMatch = rest.match(/^\/tracks\/([^/]+)\/blob$/);
       if (trackMatch && request.method === 'PUT') {
+        const limited = await guarded(env, request, 'upload', UPLOAD_LIMIT);
+        if (limited) return limited;
+
+        // 安全闸门 §2.1：trackId 会被拼进 R2 key，必须先证明它是 UUID
         const trackId = trackMatch[1]!;
+        if (!isUuid(trackId)) return fail(400, 'bad track id');
+
+        // 安全闸门 §2.7：Content-Length 可以伪造或省略，这里只做快速拒绝，
+        // 真正的上限由 putTrack 在流式读取时累计计数
         const declared = Number(request.headers.get('Content-Length') ?? 0);
-        if (declared > MAX_UPLOAD_BYTES) return fail(413, 'file too large');
+        if (Number.isFinite(declared) && declared > MAX_UPLOAD_BYTES) return fail(413, 'file too large');
         if (!request.body) return fail(400, 'empty body');
-        const size = await putTrack(env, code, trackId, request.body, request.headers.get('Content-Type') ?? '');
-        return json({ ok: true, size });
+
+        try {
+          const size = await putTrack(env, code, trackId, request.body);
+          return json({ ok: true, size });
+        } catch (err) {
+          if ((err as Error).message === 'too large') return fail(413, 'file too large');
+          throw err;
+        }
       }
 
       const deleteMatch = rest.match(/^\/tracks\/([^/]+)$/);
@@ -2398,23 +3032,94 @@ npx vitest run test/integration/stream.test.ts
 ```ts
       const streamMatch = rest.match(/^\/tracks\/([^/]+)\/stream$/);
       if (streamMatch && request.method === 'GET') {
-        return streamTrack(env, code, streamMatch[1]!, request);
+        const trackId = streamMatch[1]!;
+        // 安全闸门 §2.1：格式不对直接 400，绝不带着未校验的字符串去拼 key
+        if (!isUuid(trackId)) return fail(400, 'bad track id');
+        // ?n= 只用于选择响应头的音频类型，只可能落在白名单常量上（见 §2.2 的说明）
+        const filename = url.searchParams.get('n') ?? '';
+        return streamTrack(env, code, trackId, filename, request);
       }
 ```
 
-- [ ] **Step 4: 运行，确认通过**
+并在顶部导入里加上 `isUuid`（Task 3 已经导入了 `security` 里的几个，这里补上）。
 
-```bash
-npx vitest run test/integration/stream.test.ts
+- [ ] **Step 4: 补安全用例到 `test/integration/stream.test.ts`**
+
+在既有用例之后追加：
+
+```ts
+describe('流式端点的安全约束', () => {
+  it('非 UUID 的 trackId 返回 400，而不是去拼 key', async () => {
+    const { code, cookie } = await uploadSong(song(64));
+    for (const bad of ['..%2F..%2Fsecret', 'not-a-uuid', '../../etc/passwd', 'a'.repeat(40)]) {
+      const res = await SELF.fetch(
+        `https://example.com/api/rooms/${code}/tracks/${encodeURIComponent(bad)}/stream`,
+        { headers: { Cookie: cookie } },
+      );
+      expect([400, 404]).toContain(res.status);
+      expect(res.status).not.toBe(200);
+    }
+  });
+
+  it('响应头强制 nosniff，且 Content-Type 只可能是白名单值', async () => {
+    const { cookie, url } = await uploadSong(song(256));
+    const res = await SELF.fetch(`https://example.com${url}?n=x.mp3`, { headers: { Cookie: cookie } });
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(res.headers.get('Content-Type')).toBe('audio/mpeg');
+  });
+
+  it('上传 HTML 也拿不到 text/html 的响应类型（存储型 XSS 的核心防线）', async () => {
+    // 登记时故意声明成 HTML，并给一个 .html 的文件名
+    const created = await SELF.fetch('https://example.com/api/rooms', { method: 'POST' });
+    const code = ((await created.json()) as { code: string }).code;
+    const joined = await SELF.fetch(`https://example.com/api/rooms/${code}/join`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '阿甲' }),
+    });
+    const cookie = joined.headers.get('Set-Cookie')!.split(';')[0]!;
+    const init = await SELF.fetch(`https://example.com/api/rooms/${code}/tracks`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ name: 'evil.html', size: 32, mime: 'text/html' }),
+    });
+    const { trackId, uploadUrl } = (await init.json()) as any;
+    await SELF.fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { Cookie: cookie, 'Content-Type': 'text/html' },
+      body: new TextEncoder().encode('<script>alert(1)</script>'),
+    });
+
+    // 即使攻击者自己指定 ?n=evil.html，也只会拿到 octet-stream
+    const res = await SELF.fetch(
+      `https://example.com/api/rooms/${code}/tracks/${trackId}/stream?n=evil.html`,
+      { headers: { Cookie: cookie } },
+    );
+    expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(res.headers.get('Content-Type')).not.toContain('html');
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+  });
+
+  it('不发 CORS 头（浏览器端只能同源读）', async () => {
+    const { cookie, url } = await uploadSong(song(64));
+    const res = await SELF.fetch(`https://example.com${url}`, {
+      headers: { Cookie: cookie, Origin: 'https://evil.com' },
+    });
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+});
 ```
 
-预期：PASS，8 个用例。
+- [ ] **Step 5: 运行，确认通过**
 
-- [ ] **Step 5: 提交**
+```bash
+npx vitest run --project integration test/integration/stream.test.ts
+```
+
+预期：PASS，12 个用例（8 个功能 + 4 个安全）。
+
+- [ ] **Step 6: 提交**
 
 ```bash
 git add -A
-git commit -m "feat(server): range-capable streaming endpoint for R2 tracks"
+git commit -m "feat(server): range-capable streaming endpoint with forced audio content-type"
 ```
 
 ---
@@ -4577,6 +5282,159 @@ git commit -m "test(e2e): two-browser playback sync regression suite"
 
 ---
 
+## Task 17: 安全回归与人工渗透验证
+
+前面的任务已经把对策写进代码了，但没有一次**站在攻击者角度**的验证。
+这一步是把 `docs/security.md` 的清单逐条打勾。
+
+**Files:**
+- Create: `test/e2e/security.spec.ts`
+- Modify: `docs/security.md`（勾选上线前检查清单）
+
+**Interfaces:**
+- Consumes: 全部已完成功能
+- Produces: 一份可重复执行的安全回归，以及一次人工验证的结论
+
+- [ ] **Step 1: 写 `test/e2e/security.spec.ts`**
+
+```ts
+import { test, expect } from '@playwright/test';
+import { createRoom } from './helpers';
+
+test('页面有 CSP，且不允许内联脚本执行', async ({ page }) => {
+  const res = await page.goto('/');
+  const csp = res!.headers()['content-security-policy'];
+  expect(csp).toContain("script-src 'self'");
+  expect(csp).toContain("frame-ancestors 'none'");
+  expect(csp).not.toContain('unsafe-eval');
+});
+
+test('聊天里的脚本不会执行', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  let alerted = false;
+  page.on('dialog', async (d) => { alerted = true; await d.dismiss(); });
+
+  await createRoom(page, '阿甲');
+  await page.getByPlaceholder('说点什么…').fill('<img src=x onerror="alert(1)">');
+  await page.getByRole('button', { name: '发送' }).click();
+
+  // 消息应原样显示为文本
+  await expect(page.locator('.chat .what').last()).toHaveText('<img src=x onerror="alert(1)">');
+  expect(alerted).toBe(false);
+});
+
+test('恶意文件名的歌曲在界面上也是纯文本', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  let alerted = false;
+  page.on('dialog', async (d) => { alerted = true; await d.dismiss(); });
+
+  await createRoom(page, '阿甲');
+  // 直接调 API 塞一个恶意文件名的曲目
+  const code = (await page.locator('header strong').textContent())!.replace('房间 ', '').trim();
+  await page.evaluate(async (c) => {
+    await fetch(`/api/rooms/${c}/tracks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '<img src=x onerror=alert(1)>.mp3', size: 16, mime: 'audio/mpeg' }),
+    });
+  }, code);
+
+  await expect(page.locator('.queue li').first()).toContainText('<img src=x onerror=alert(1)>.mp3');
+  expect(alerted).toBe(false);
+});
+
+test('跨站发起的 WebSocket 连不上', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  const code = (await page.locator('header strong').textContent())!.replace('房间 ', '').trim();
+
+  // 从一个不同 Origin 的页面发起握手
+  const result = await page.evaluate(async (c) => {
+    return await new Promise<string>((resolve) => {
+      const ws = new WebSocket(`/api/rooms/${c}/ws`);
+      ws.onopen = () => { ws.close(); resolve('opened'); };
+      ws.onerror = () => resolve('rejected');
+      setTimeout(() => resolve('timeout'), 3000);
+    });
+  }, code);
+  expect(result).toBe('opened');   // 同源应当成功 —— 这是对照
+
+  // 用带伪造 Origin 的裸请求验证拒绝路径
+  const res = await page.request.fetch(`/api/rooms/${code}/ws`, {
+    headers: { Upgrade: 'websocket', Origin: 'https://evil.com' },
+  });
+  expect(res.status()).toBe(403);
+});
+```
+
+- [ ] **Step 2: 运行 E2E 安全用例**
+
+```bash
+npx playwright test test/e2e/security.spec.ts
+```
+
+预期：4 passed。
+
+- [ ] **Step 3: 人工渗透验证（用 curl，不看代码）**
+
+在本地 `wrangler dev` 跑着的情况下，依次执行。每一条都要**看到预期的拒绝**。
+
+```bash
+# 1. 路径穿越
+curl -i "http://127.0.0.1:8788/api/rooms/AAAAAA/tracks/..%2F..%2Fsecret/stream"
+
+# 2. 非法房间码
+curl -i "http://127.0.0.1:8788/api/rooms/abc/join" -X POST
+
+# 3. 无 Cookie 访问房间资源
+curl -i "http://127.0.0.1:8788/api/rooms/AAAAAA/state"
+
+# 4. 伪造的会话令牌
+curl -i "http://127.0.0.1:8788/api/me" -H "Cookie: mt_sess=forged.signature"
+
+# 5. 跨站 Origin 的 WebSocket 升级
+curl -i "http://127.0.0.1:8788/api/rooms/AAAAAA/ws" -H "Upgrade: websocket" -H "Origin: https://evil.com"
+
+# 6. 限速
+for i in $(seq 1 15); do curl -s -o /dev/null -w "%{http_code} " -X POST "http://127.0.0.1:8788/api/rooms"; done; echo
+
+# 7. 确认没有任何 CORS 头
+curl -i "http://127.0.0.1:8788/api/health" -H "Origin: https://evil.com" | grep -i "access-control" || echo "无 CORS 头 ✓"
+```
+
+预期：1→400、2→400、3→401、4→401、5→403、6 出现 429、7 输出"无 CORS 头 ✓"。
+
+- [ ] **Step 4: 检查仓库里没有密钥**
+
+```bash
+git log -p --all | grep -iE "secret|password|token" | grep -v "SESSION_SECRET\|mt_sess\|signSession\|verifySession\|secret: string\|secret)" | head -20
+```
+
+预期：除变量名外无实际值。若发现真实密钥，**立即轮换**（`wrangler secret put SESSION_SECRET` 换新值），
+并清理 git 历史（`git filter-repo`）—— 只是删掉文件是不够的。
+
+- [ ] **Step 5: 确认 R2 桶没有公开访问**
+
+```bash
+npx wrangler r2 bucket dev-url get musictogether-tracks 2>&1 | head -5
+```
+
+预期：没有启用 `r2.dev`，也没有自定义域。**这个桶必须是纯私有的。**
+
+- [ ] **Step 6: 更新 `docs/security.md` 的上线前检查清单**
+
+逐条打勾，任何一条打不了勾就在计划里新开一个任务补掉，**不要带着未勾选项上线**。
+
+- [ ] **Step 7: 提交**
+
+```bash
+git add -A
+git commit -m "test(security): e2e regression suite and manual penetration checklist"
+```
+
+---
+
 ## 完成后的收尾
 
 - [ ] 在 `docs/spec.md` 顶部把状态改为「已实现」并记录与规格的偏差
@@ -4590,6 +5448,23 @@ git commit -m "test(e2e): two-browser playback sync regression suite"
 
 **规格覆盖**：D1→Task 6/7、D2→Task 15、D3→Task 1、D4→Task 5、D5→Task 2/10、D6→Task 12、D7→Task 3（30 天 Cookie）、D8→Task 11、D9→Task 6、D10→Task 12/13/14/15。规格 §2 的 R1/R2/R3 → Task 0；§12 的五条"坑"→ Task 6（流式/206）、Task 4（Hibernation/alarm）、Task 9（心跳）。
 
+**安全覆盖**（对照 `docs/security.md`）：
+
+| 威胁 | 对策落在哪 |
+|------|-----------|
+| §2.1 路径穿越 | `security.ts` 的 `isUuid`（Task 3）+ 三处调用点（Task 6 上传、Task 7 流式、Task 6 删除）+ 回归用例 |
+| §2.2 存储型 XSS | `audioMimeFor` 白名单（Task 3）+ `streamTrack` 强制类型与 nosniff（Task 6）+ 「上传 HTML 也拿不到 text/html」用例（Task 7） |
+| §2.3 WebSocket CSRF | `originAllowed`（Task 3）+ `/ws` 升级前校验（Task 3）+ 三条回归用例（Task 3、Task 17） |
+| §2.4 房间码枚举 | `GuardDO` + `checkRate`（Task 3）+ 三条限速用例（Task 3、Task 6） |
+| §2.5 横向越权 | 每个房间路由校验 `session.room === code`（Task 3）+ 跨房间用例（Task 6、Task 7） |
+| §2.6 XSS | Preact 默认转义 + CSP（Task 3）+ 聊天/文件名用例（Task 13、Task 17） |
+| §2.7 资源耗尽 | 流式计数（Task 6）+ 房间配额（Task 6）+ 上传限速（Task 3）+ 回归用例 |
+| §2.8 令牌不可吊销 | 已记录的取舍；缓解措施 = 删房间时删 R2 对象（Task 6） |
+| §2.9 密钥与供应链 | `wrangler secret` + `.gitignore`（Task 1）+ 密钥扫描步骤（Task 17） |
+| §3 安全响应头 | `withSecurity` 包住 Worker 出口（Task 3）+ 头断言（Task 3、Task 17） |
+
 **已知未覆盖**：规格 §8.2 的"目录句柄存 IndexedDB、下次一键重扫"未排入任务（属体验优化，非闭环必需）。若需要，在 Task 11 之后补一个任务。
 
 **类型一致性**：`Playback` 在 Task 2 定义，Task 5/8/10 使用一致的四个字段 + `seq`；`trackKey` 在 Task 6 定义并被同文件使用；`ServerMessage.playback` 的 `{playback, serverNow}` 结构在 Task 5 产生、Task 10 消费，一致。
+
+**安全相关的一致性**：`isUuid` / `audioMimeFor` / `originAllowed` / `withSecurity` 全部在 Task 3 定义并导出，后续任务只消费不重定义；`streamTrack` 的签名在 Task 6 定为 `(env, roomCode, trackId, filename, request)`，Task 7 的调用点必须一致（**注意**：早期草稿里是四个参数，实现时以 Task 6 的五参数版本为准）。
