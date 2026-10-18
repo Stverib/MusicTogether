@@ -21,7 +21,13 @@ export type ClientMessage =
   | { type: 'chat'; text: string };
 
 export type ServerMessage =
-  | { type: 'state'; room: RoomState }
+  /**
+   * 连接（含重连）后的全量快照。
+   *
+   * 必须带 serverNow：客户端要靠它把锚点换算成"现在应该播到哪儿"，
+   * 否则新人进房只能干等到下一次周期性同步帧（最多 30 秒）才有声音。
+   */
+  | { type: 'state'; room: RoomState; serverNow: number }
   | { type: 'playback'; playback: Playback; serverNow: number }
   | { type: 'sync'; playback: Playback; serverNow: number }
   | { type: 'queue'; queue: string[]; epoch: number }

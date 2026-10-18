@@ -104,6 +104,8 @@ export class RoomDO extends DurableObject<Env> {
           ? Response.json({ ok: true, name: track.name, size: track.size })
           : new Response('no such track', { status: 404 });
       }
+      case '/track-ready':
+        return this.markReady(request);
       case '/track-remove':
         return this.removeTrack(request);
       case '/track-deletable': {
@@ -160,10 +162,33 @@ export class RoomDO extends DurableObject<Env> {
       addedAt: Date.now(),
     };
     room.tracks.push(track);
-    room.queue.push(track.id);
+    // 注意：这里**不**入队。登记只代表"这个名字占下了"，
+    // 字节还没进 R2。此时就让它出现在队列里，另一端点播放只会拿到 404。
+    // 入队由 markReady 在 PUT 成功之后触发。
     room.epoch++;
     await this.save();
     this.broadcast({ type: 'tracks', tracks: room.tracks, epoch: room.epoch });
+    return Response.json({ ok: true });
+  }
+
+  /**
+   * 字节已经落到 R2，这首现在真的能播了 —— 到这一步才进队列。
+   *
+   * 由 Worker 在 PUT 成功后调用，而不是由客户端自己宣布：
+   * 队列里出现的每一首，都保证是能播的。
+   */
+  private async markReady(request: Request): Promise<Response> {
+    const { trackId } = (await request.json()) as { trackId?: string };
+    const room = this.requireRoom();
+    if (typeof trackId !== 'string') return new Response('bad track id', { status: 400 });
+    if (!room.tracks.some((t) => t.id === trackId)) {
+      return new Response('no such track', { status: 404 });
+    }
+    if (room.queue.includes(trackId)) return Response.json({ ok: true }); // 幂等
+
+    room.queue.push(trackId);
+    room.epoch++;
+    await this.save();
     this.broadcast({ type: 'queue', queue: room.queue, epoch: room.epoch });
     return Response.json({ ok: true });
   }
@@ -202,7 +227,13 @@ export class RoomDO extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server, [clientId]);
 
     await this.addMember(clientId, name);
-    server.send(JSON.stringify({ type: 'state', room: this.requireRoom() } satisfies ServerMessage));
+    server.send(
+      JSON.stringify({
+        type: 'state',
+        room: this.requireRoom(),
+        serverNow: Date.now(),
+      } satisfies ServerMessage),
+    );
     this.broadcast({ type: 'members', members: this.requireRoom().members }, server);
 
     return new Response(null, { status: 101, webSocket: client });

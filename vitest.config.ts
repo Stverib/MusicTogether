@@ -21,7 +21,14 @@ export default defineConfig({
             wrangler: { configPath: './wrangler.jsonc' },
             // 测试用的密钥只存在于这里，绝不写进 wrangler.jsonc ——
             // 生产密钥走 `wrangler secret put`，见 AGENTS.md 安全红线第 9 条
-            miniflare: { bindings: { SESSION_SECRET: 'test-only-secret-at-least-32-chars-long' } },
+            miniflare: {
+              bindings: {
+                SESSION_SECRET: 'test-only-secret-at-least-32-chars-long',
+                // 显式锁回 1 倍：.dev.vars 里为了 E2E 把限速放宽了 50 倍，
+                // 而限速本身正是这一层要测的东西
+                RATE_LIMIT_SCALE: '1',
+              },
+            },
           }),
         ],
         test: {

@@ -25,7 +25,25 @@ export function Player() {
   }, []);
 
   if (!track) {
-    return <div class="player empty muted">队列里还没有歌。先加一首。</div>;
+    // 「队列里有歌」和「正在放歌」是两回事 —— 上传只入队，不自动开播
+    const first = store.queueTracks.value[0];
+    return (
+      <div class="player empty">
+        {first ? (
+          <>
+            <div class="muted">还没有在放的歌。</div>
+            <button
+              class="primary"
+              onClick={() => store.send({ type: 'play', trackId: first.id })}
+            >
+              播放《{first.name}》
+            </button>
+          </>
+        ) : (
+          <div class="muted">队列里还没有歌。先加一首。</div>
+        )}
+      </div>
+    );
   }
 
   const isPlaying = room.playback.isPlaying;

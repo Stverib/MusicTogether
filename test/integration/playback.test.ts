@@ -209,4 +209,23 @@ describe('播放控制', () => {
     expect(state.room.playback.trackId).toBe(trackId);
     expect(state.room.playback.isPlaying).toBe(true);
   });
+
+  it('快照帧必须带 serverNow，否则新人要干等到下一次周期同步帧才有声音', async () => {
+    const { code, members } = await roomWithMembers(['阿甲']);
+    const a = members[0]!;
+    const trackId = await uploadTrack(code, a.cookie, 'a.mp3');
+
+    a.ws.send(JSON.stringify({ type: 'play', trackId }));
+    await nextOfType(a.next, 'playback');
+
+    const before = Date.now();
+    const late = await member(code, '乙');
+    const state = await nextOfType(late.next, 'state');
+    const after = Date.now();
+
+    expect(typeof state.serverNow).toBe('number');
+    // 服务端时刻应当落在请求前后的这段真实时间里
+    expect(state.serverNow).toBeGreaterThanOrEqual(before - 1000);
+    expect(state.serverNow).toBeLessThanOrEqual(after + 1000);
+  });
 });

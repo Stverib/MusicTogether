@@ -6,7 +6,7 @@ export function Queue() {
   const currentId = room.playback.trackId;
 
   return (
-    <section class="panel">
+    <section class="panel queue">
       <h2>队列（{tracks.length}）</h2>
       {tracks.length === 0 && <p class="muted small">空的。</p>}
       <ul class="list">

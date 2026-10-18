@@ -9,6 +9,21 @@ const CREATE_LIMIT = { limit: 10, windowMs: 60_000 };
 const JOIN_LIMIT = { limit: 20, windowMs: 60_000 };
 const UPLOAD_LIMIT = { limit: 60, windowMs: 60_000 };
 
+/**
+ * 生产限额是上面那三个常量。RATE_LIMIT_SCALE 只是本地开发与 E2E 的逃生口 ——
+ * 本地所有请求都来自同一个 IP，不放松的话测试套件会把自己挡住。
+ * 生产环境不设这个变量即为 1 倍。见 docs/security.md §2.4。
+ */
+function limits(env: Env) {
+  const raw = Number(env.RATE_LIMIT_SCALE);
+  const scale = Number.isFinite(raw) && raw >= 1 ? Math.min(raw, 1000) : 1;
+  const at = (cfg: { limit: number; windowMs: number }) => ({
+    limit: cfg.limit * scale,
+    windowMs: cfg.windowMs,
+  });
+  return { create: at(CREATE_LIMIT), join: at(JOIN_LIMIT), upload: at(UPLOAD_LIMIT) };
+}
+
 const SESSION_TTL_SEC = 30 * 24 * 60 * 60;
 
 function json(data: unknown, init?: ResponseInit): Response {
@@ -67,6 +82,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   const secret = sessionSecret(env);
+  const lim = limits(env);
 
   if (path === '/api/me') {
     const session = await readSession(request, secret);
@@ -74,7 +90,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (path === '/api/rooms' && request.method === 'POST') {
-    const limited = await guarded(env, request, 'create', CREATE_LIMIT);
+    const limited = await guarded(env, request, 'create', lim.create);
     if (limited) return limited;
 
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -95,7 +111,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
   const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
 
   if (rest === '/join' && request.method === 'POST') {
-    const limited = await guarded(env, request, 'join', JOIN_LIMIT);
+    const limited = await guarded(env, request, 'join', lim.join);
     if (limited) return limited;
 
     const body = (await request.json().catch(() => ({}))) as { name?: string; clientId?: string };
@@ -137,7 +153,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
   }
 
   if (rest === '/tracks' && request.method === 'POST') {
-    const limited = await guarded(env, request, 'upload', UPLOAD_LIMIT);
+    const limited = await guarded(env, request, 'upload', lim.upload);
     if (limited) return limited;
 
     const body = (await request.json().catch(() => ({}))) as {
@@ -170,7 +186,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
   const blobMatch = rest.match(/^\/tracks\/([^/]+)\/blob$/);
   if (blobMatch && request.method === 'PUT') {
-    const limited = await guarded(env, request, 'upload', UPLOAD_LIMIT);
+    const limited = await guarded(env, request, 'upload', lim.upload);
     if (limited) return limited;
 
     // trackId 会被拼进 R2 key，必须先证明它是 UUID（安全文档 §2.1）
@@ -193,6 +209,13 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
     try {
       const written = await putTrack(env, code, trackId, name, request.body, declared);
+      // 字节真的落地了才入队：这样队列里的每一首都是能播的，
+      // 而登记与 PUT 之间的那段时间里它不会提前出现在两端
+      await stub.fetch('https://do/track-ready', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackId }),
+      });
       return json({ ok: true, size: written });
     } catch (err) {
       if ((err as Error).message === 'bad length') return fail(413, 'file too large');

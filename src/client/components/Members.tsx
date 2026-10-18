@@ -5,7 +5,7 @@ export function Members() {
   const myName = store.myName.value;
 
   return (
-    <section class="panel">
+    <section class="panel members">
       <h2>成员（{members.length}）</h2>
       <ul class="list">
         {members.map((m) => (

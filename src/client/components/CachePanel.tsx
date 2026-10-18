@@ -25,7 +25,7 @@ export function CachePanel() {
   const total = entries.reduce((sum, e) => sum + e.size, 0);
 
   return (
-    <section class="panel">
+    <section class="panel cache">
       <h2>
         <button class="link" onClick={() => setOpen(!open)}>
           本地缓存（{entries.length} 首{open ? `，共 ${mb(total)}` : ''}）

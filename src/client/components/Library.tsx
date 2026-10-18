@@ -34,23 +34,26 @@ export function Library() {
   };
 
   const doUpload = async () => {
-    if (!picked) return;
-    for (let i = 0; i < picked.length; i++) {
-      const file = picked[i]!;
-      setProgress({ done: i, total: picked.length, name: file.name });
+    const batch = picked;
+    if (!batch) return;
+    for (let i = 0; i < batch.length; i++) {
+      const file = batch[i]!;
+      setProgress({ done: i, total: batch.length, name: file.name });
       try {
-        const trackId = await uploadTrack(room.code, file);
-        store.send({ type: 'enqueue', trackId });
+        // 上传完不用自己入队：服务端在字节落地后会把它加进队列
+        await uploadTrack(room.code, file);
       } catch (e) {
         setError(`${file.name}：${(e as Error).message}`);
       }
     }
     setProgress(null);
-    setPicked(null);
+    // 上传期间用户可能又选了一批。这时只清掉自己这一批 ——
+    // 直接 setPicked(null) 会把用户刚选的文件悄悄吞掉。
+    setPicked((cur) => (cur === batch ? null : cur));
   };
 
   return (
-    <section class="panel">
+    <section class="panel library">
       <h2>添加歌曲</h2>
 
       <div class="row">

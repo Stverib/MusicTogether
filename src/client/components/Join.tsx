@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks';
+import { normalizeCode } from '../../shared/codes';
 import { getOrCreateClientId, store } from '../store';
 
 export function Join({ initialCode = '' }: { initialCode?: string }) {
@@ -44,9 +45,14 @@ export function Join({ initialCode = '' }: { initialCode?: string }) {
         房间码
         <input
           value={code}
-          onInput={(e) => setCode((e.target as HTMLInputElement).value.toUpperCase())}
+          // 边输入边归一化：粘贴 "k-7-m-2-q-x" 会直接显示成 K7M2QX。
+          // 这里**不能**加 maxLength —— 它按原始字符数截断，
+          // 粘贴带分隔符的房间码会被砍成半截（"k-7-m-2-q" → K7M2）。
+          // 长度由归一化后的 slice(0, 6) 保证。
+          onInput={(e) =>
+            setCode(normalizeCode((e.target as HTMLInputElement).value).slice(0, 6))
+          }
           placeholder="K7M2QX"
-          maxLength={8}
           autocapitalize="characters"
           autocomplete="off"
           spellcheck={false}
@@ -56,7 +62,7 @@ export function Join({ initialCode = '' }: { initialCode?: string }) {
       {error && <p class="error">{error}</p>}
 
       <div class="row">
-        <button type="submit" disabled={busy || code.trim().length < 6}>
+        <button type="submit" disabled={busy || code.length < 6}>
           加入
         </button>
         <button

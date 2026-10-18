@@ -92,10 +92,17 @@ class RoomStore {
   private handle(msg: unknown): void {
     const m = msg as Record<string, any>;
     switch (m.type) {
-      case 'state':
-        this.room.value = m.room as RoomState;
+      case 'state': {
+        const room = m.room as RoomState;
+        this.room.value = room;
         this.error.value = null;
+        // 快照是权威的，直接用它对齐播放器 —— 中途进房/重连后立即就能对上，
+        // 不必等下一次周期性同步帧
+        if (typeof m.serverNow === 'number') {
+          this.onPlayback?.(room.playback, m.serverNow);
+        }
         break;
+      }
 
       case 'playback':
       case 'sync':

@@ -22,6 +22,10 @@ export class Player {
   constructor() {
     this.audio = new Audio();
     this.audio.preload = 'auto';
+    // 挂进 DOM 而不是让它游离在外：在 DOM 里的媒体元素在后台播放与
+    // Media Session 上更可靠，也便于调试与 E2E 读取真实状态。
+    this.audio.hidden = true;
+    document.body.appendChild(this.audio);
 
     this.audio.addEventListener('timeupdate', () => this.correctDrift());
     this.audio.addEventListener('ended', () => store.send({ type: 'next' }));
