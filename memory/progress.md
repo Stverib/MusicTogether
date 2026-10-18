@@ -110,6 +110,12 @@ PWA 装不上 / 没有离线能力；局域网若做了客户端隔离则连不�
   （`wrangler r2 bucket create` → `wrangler secret put SESSION_SECRET` → `npm run deploy`）
   本身没错，但**必须先解决域名与 R2 这两件事**，否则部署出来大陆打不开
 - 部署后要补的三条上线检查（本地无法验证）：生产密钥、R2 桶不公开、HSTS
+- **3D 舞台**：设计规格已写
+  （`docs/superpowers/specs/2026-10-18-3d-stage-design.md`），等用户过一遍
+  再出实现计划，然后用新 worktree 做。首个主题「晨光」（粉白 / 浅橙 / 淡墨绿），
+  星空 / 海边 / 赛博朋克暂时不做。主题是房间级、服务端权威（要动协议与 DO）。
+  **可行性已实测**：three r186 的核心 0 处 `eval` / `new Function` / blob worker，
+  所以 CSP 一行都不用改，红线 15 守得住
 - `cloudflare:test` 的 `env`/`SELF` 已废弃，应迁移到 `cloudflare:workers`
   的 `env` 与 `exports.default.fetch()`
 
