@@ -88,6 +88,12 @@ export async function streamTrack(
   });
   if (!obj) return new Response('not found', { status: 404 });
 
+  // 带 onlyIf 时 R2 可能只回元数据不回响应体（条件命中，例如 If-None-Match 匹配）
+  const body = (obj as R2ObjectBody).body;
+  if (!body) {
+    return new Response(null, { status: 304, headers: { ETag: obj.httpEtag } });
+  }
+
   // 文件名来自上传时写入的 customMetadata —— 同一次 get 就带回来了，不需要额外往返。
   // audioMimeFor 只输出白名单里的固定常量，所以哪怕文件名本身是恶意的，
   // 也无法让响应类型变成 text/html（安全文档 §2.2）
@@ -110,14 +116,20 @@ export async function streamTrack(
     'Cache-Control': 'private, max-age=3600',
   });
 
-  if (!rangeHeader || !obj.range) {
+  // R2Range 的联合类型里还包含 { suffix } 这种请求侧的写法，
+  // 响应侧实际总是给出具体的 offset/length，但类型上要自己收窄
+  const range = obj.range as { offset?: number; length?: number } | undefined;
+
+  if (!rangeHeader || !range || typeof range.offset !== 'number') {
     headers.set('Content-Length', String(obj.size));
-    return new Response(obj.body, { status: 200, headers });
+    return new Response(body, { status: 200, headers });
   }
 
-  const start = obj.range.offset;
-  const end = obj.range.offset + obj.range.length - 1;
+  const start = range.offset;
+  // length 缺省表示"一直到结尾"
+  const end = typeof range.length === 'number' ? start + range.length - 1 : obj.size - 1;
+
   headers.set('Content-Range', `bytes ${start}-${end}/${obj.size}`);
-  headers.set('Content-Length', String(obj.range.length));
-  return new Response(obj.body, { status: 206, headers });
+  headers.set('Content-Length', String(end - start + 1));
+  return new Response(body, { status: 206, headers });
 }

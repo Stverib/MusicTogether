@@ -60,10 +60,14 @@ export function Library() {
 
       <input
         type="file"
-        ref={dirInput}
-        webkitdirectory
         multiple
         hidden
+        // webkitdirectory 是非标准属性，Preact 的 JSX 类型里没有它。
+        // 手机端"选一个文件夹"只能靠它，所以在 ref 里直接设 —— 运行时完全等价。
+        ref={(el) => {
+          dirInput.current = el;
+          el?.setAttribute('webkitdirectory', '');
+        }}
         onChange={(e) => takeFiles([...(e.target as HTMLInputElement).files ?? []])}
       />
       <input

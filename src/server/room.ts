@@ -1,3 +1,4 @@
+import { DurableObject } from 'cloudflare:workers';
 import {
   emptyPlayback,
   pauseAnchor,
@@ -32,14 +33,15 @@ const SYNC_INTERVAL_MS = 30_000;
  * 2. **WebSocket 消息计入免费计划的 100,000 次/日额度**，所以服务端只在状态
  *    *变化* 时说话，绝不周期性广播进度 —— 位置由客户端按锚点自行推算。
  */
-export class RoomDO implements DurableObject {
+export class RoomDO extends DurableObject<Env> {
   private room: RoomState | null = null;
 
-  constructor(private state: DurableObjectState, private env: Env) {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
     // 应用层心跳由运行时直接应答，这类往返不会唤醒房间
-    this.state.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
-    this.state.blockConcurrencyWhile(async () => {
-      this.room = (await this.state.storage.get<RoomState>(STORAGE_KEY)) ?? null;
+    this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
+    this.ctx.blockConcurrencyWhile(async () => {
+      this.room = (await this.ctx.storage.get<RoomState>(STORAGE_KEY)) ?? null;
     });
   }
 
@@ -51,14 +53,14 @@ export class RoomDO implements DurableObject {
   }
 
   private async save(): Promise<void> {
-    if (this.room) await this.state.storage.put(STORAGE_KEY, this.room);
+    if (this.room) await this.ctx.storage.put(STORAGE_KEY, this.room);
   }
 
   // ---------- 广播 ----------
 
   private broadcast(msg: ServerMessage, except?: WebSocket): void {
     const data = JSON.stringify(msg);
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.ctx.getWebSockets()) {
       if (ws === except) continue;
       try {
         ws.send(data);
@@ -74,7 +76,7 @@ export class RoomDO implements DurableObject {
 
   // ---------- 路由 ----------
 
-  async fetch(request: Request): Promise<Response> {
+  override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -174,7 +176,7 @@ export class RoomDO implements DurableObject {
     room.queue = room.queue.filter((id) => id !== trackId);
     if (room.playback.trackId === trackId) {
       room.playback = emptyPlayback();
-      await this.state.storage.deleteAlarm();
+      await this.ctx.storage.deleteAlarm();
       this.broadcastPlayback(room.playback);
     }
     room.epoch++;
@@ -197,10 +199,10 @@ export class RoomDO implements DurableObject {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    this.state.acceptWebSocket(server, [clientId]);
+    this.ctx.acceptWebSocket(server, [clientId]);
 
     await this.addMember(clientId, name);
-    server.send(JSON.stringify({ type: 'state', room: this.room } satisfies ServerMessage));
+    server.send(JSON.stringify({ type: 'state', room: this.requireRoom() } satisfies ServerMessage));
     this.broadcast({ type: 'members', members: this.requireRoom().members }, server);
 
     return new Response(null, { status: 101, webSocket: client });
@@ -220,13 +222,13 @@ export class RoomDO implements DurableObject {
     await this.save();
   }
 
-  async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+  override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     if (typeof raw !== 'string') return;
     const room = this.requireRoom();
     const msg = parseClientMessage(raw);
     if (!msg) return;
 
-    const tag = this.state.getTags(ws)[0] ?? '';
+    const tag = this.ctx.getTags(ws)[0] ?? '';
 
     switch (msg.type) {
       case 'hello': {
@@ -251,7 +253,7 @@ export class RoomDO implements DurableObject {
         room.playback = pauseAnchor(room.playback, Date.now());
         await this.save();
         this.broadcastPlayback(room.playback);
-        await this.state.storage.deleteAlarm();
+        await this.ctx.storage.deleteAlarm();
         break;
       }
 
@@ -299,7 +301,7 @@ export class RoomDO implements DurableObject {
         room.epoch++;
         if (room.playback.trackId === msg.trackId) {
           room.playback = emptyPlayback();
-          await this.state.storage.deleteAlarm();
+          await this.ctx.storage.deleteAlarm();
           this.broadcastPlayback(room.playback);
         }
         await this.save();
@@ -344,12 +346,12 @@ export class RoomDO implements DurableObject {
     }
   }
 
-  async webSocketClose(ws: WebSocket): Promise<void> {
-    const tag = this.state.getTags(ws)[0] ?? '';
+  override async webSocketClose(ws: WebSocket): Promise<void> {
+    const tag = this.ctx.getTags(ws)[0] ?? '';
     // 只有这个 clientId 已经没有活着的连接时，才算真正离开
-    const stillHere = this.state
+    const stillHere = this.ctx
       .getWebSockets()
-      .some((s) => (this.state.getTags(s)[0] ?? '') === tag);
+      .some((s) => (this.ctx.getTags(s)[0] ?? '') === tag);
     if (stillHere) return;
 
     const room = this.room;
@@ -359,18 +361,18 @@ export class RoomDO implements DurableObject {
     this.broadcast({ type: 'members', members: room.members });
   }
 
-  async webSocketError(ws: WebSocket): Promise<void> {
+  override async webSocketError(ws: WebSocket): Promise<void> {
     await this.webSocketClose(ws);
   }
 
-  async alarm(): Promise<void> {
+  override async alarm(): Promise<void> {
     const room = this.room;
     if (!room || !room.playback.isPlaying) {
-      await this.state.storage.deleteAlarm();
+      await this.ctx.storage.deleteAlarm();
       return;
     }
     this.broadcast({ type: 'sync', playback: room.playback, serverNow: Date.now() });
-    await this.state.storage.setAlarm(Date.now() + SYNC_INTERVAL_MS);
+    await this.ctx.storage.setAlarm(Date.now() + SYNC_INTERVAL_MS);
   }
 
   // ---------- 内部 ----------
@@ -378,9 +380,9 @@ export class RoomDO implements DurableObject {
   /** 播放中才调度兜底同步帧；暂停时没有任何周期性消息 */
   private async scheduleSync(playback: Playback): Promise<void> {
     if (playback.isPlaying) {
-      await this.state.storage.setAlarm(Date.now() + SYNC_INTERVAL_MS);
+      await this.ctx.storage.setAlarm(Date.now() + SYNC_INTERVAL_MS);
     } else {
-      await this.state.storage.deleteAlarm();
+      await this.ctx.storage.deleteAlarm();
     }
   }
 
@@ -395,7 +397,7 @@ export class RoomDO implements DurableObject {
         room.playback = pauseAnchor(room.playback, Date.now());
         await this.save();
         this.broadcastPlayback(room.playback);
-        await this.state.storage.deleteAlarm();
+        await this.ctx.storage.deleteAlarm();
       }
       return;
     }

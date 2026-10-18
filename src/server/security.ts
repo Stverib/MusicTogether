@@ -82,7 +82,8 @@ export const CSP = [
 export function withSecurity(response: Response): Response {
   // 101 是 WebSocket 升级响应，重新包装会破坏它。
   // 204/205/304 是"无响应体"状态，重新构造 Response 会直接抛异常。
-  if (response.status === 101 || response.webSocket) return response;
+  const upgrade = response as Response & { webSocket?: unknown };
+  if (response.status === 101 || upgrade.webSocket) return response;
 
   const headers = new Headers(response.headers);
   headers.set('Content-Security-Policy', CSP);

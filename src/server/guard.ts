@@ -1,3 +1,4 @@
+import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './env';
 
 export type RateVerdict = { ok: boolean; retryAfter?: number };
@@ -12,12 +13,14 @@ export type RateVerdict = { ok: boolean; retryAfter?: number };
  * 计数器放在内存里，DO 被驱逐后窗口归零 —— 降级为"限速短暂失效"，
  * 而不是永久失效。对限速这个用途，这个代价换来了零存储成本。
  */
-export class GuardDO implements DurableObject {
+export class GuardDO extends DurableObject<Env> {
   private hits = new Map<string, number[]>();
 
-  constructor(private state: DurableObjectState) {}
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+  }
 
-  async fetch(request: Request): Promise<Response> {
+  override async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname !== '/check') {
       return new Response('not found', { status: 404 });
     }

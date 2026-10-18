@@ -17,7 +17,7 @@ function b64urlEncode(bytes: Uint8Array): string {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function b64urlDecode(str: string): Uint8Array | null {
+function b64urlDecode(str: string): Uint8Array<ArrayBuffer> | null {
   try {
     const padded = str.replace(/-/g, '+').replace(/_/g, '/');
     const bin = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
