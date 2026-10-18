@@ -15,6 +15,5 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomDO", "GuardDO"] }],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "musictogether-tracks" }],
-  "observability": { "enabled": true },
-  "vitest": {}
+  "observability": { "enabled": true }
 }

@@ -19,6 +19,21 @@ function fail(status: number, message: string): Response {
   return json({ error: message }, { status });
 }
 
+/**
+ * 取会话密钥，并且**在密钥不可用时响亮地失败**。
+ *
+ * 不能把这个检查省掉：WebCrypto 拿到空密钥只会抛一个含义不明的 DataError，
+ * 而"密钥悄悄变成空字符串"意味着任何人都能伪造任意房间的任意身份。
+ * 宁可整个服务起不来，也不要带着一个坏密钥跑。
+ */
+function sessionSecret(env: Env): string {
+  const secret = env.SESSION_SECRET;
+  if (typeof secret !== 'string' || secret.length < 32) {
+    throw new Error('SESSION_SECRET missing or shorter than 32 chars');
+  }
+  return secret;
+}
+
 /** 限速闸门。返回非 null 表示应该直接把这个响应回给客户端。 */
 async function guarded(
   env: Env,
@@ -40,10 +55,21 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
   if (!path.startsWith('/api/')) return new Response('not found', { status: 404 });
 
-  if (path === '/api/health') return json({ ok: true, at: Date.now() });
+  if (path === '/api/health') {
+    // 密钥配错时健康检查要如实报告，而不是假装一切正常
+    let configured = true;
+    try {
+      sessionSecret(env);
+    } catch {
+      configured = false;
+    }
+    return json({ ok: configured, at: Date.now() }, { status: configured ? 200 : 503 });
+  }
+
+  const secret = sessionSecret(env);
 
   if (path === '/api/me') {
-    const session = await readSession(request, env.SESSION_SECRET);
+    const session = await readSession(request, secret);
     return session ? json({ session }) : fail(401, 'no session');
   }
 
@@ -81,7 +107,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
     const token = await signSession(
       { room: code, clientId, name, exp: Date.now() + SESSION_TTL_SEC * 1000 },
-      env.SESSION_SECRET,
+      secret,
     );
     return json(
       { clientId, room: code },
@@ -95,7 +121,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
   // ---- 以下都需要会话 ----
 
-  const session = await readSession(request, env.SESSION_SECRET);
+  const session = await readSession(request, secret);
   // 签名合法只证明"你是谁"，还要证明"你能进这个房间"（安全文档 §2.5）
   if (!session || session.room !== code) return fail(401, 'not a member of this room');
 

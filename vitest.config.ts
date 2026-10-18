@@ -16,7 +16,14 @@ export default defineConfig({
       },
       {
         // 服务端：跑在真实的 workerd 里，用真实的 Durable Object 与 R2 模拟
-        plugins: [cloudflareTest({ wrangler: { configPath: './wrangler.jsonc' } })],
+        plugins: [
+          cloudflareTest({
+            wrangler: { configPath: './wrangler.jsonc' },
+            // 测试用的密钥只存在于这里，绝不写进 wrangler.jsonc ——
+            // 生产密钥走 `wrangler secret put`，见 AGENTS.md 安全红线第 9 条
+            miniflare: { bindings: { SESSION_SECRET: 'test-only-secret-at-least-32-chars-long' } },
+          }),
+        ],
         test: {
           name: 'integration',
           include: ['test/integration/**/*.test.ts'],
