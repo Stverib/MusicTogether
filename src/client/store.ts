@@ -8,11 +8,25 @@ const LS_NAME = 'mt_name';
 
 export type ChatMessage = { from: string; name: string; text: string; at: number };
 
+/**
+ * `crypto.randomUUID()` **只在安全上下文里存在**。
+ *
+ * 安全上下文不只是 HTTPS：`http://localhost` 算，`http://192.168.1.5` 这种
+ * 局域网地址不算。缺了它整页会白屏 —— Join 在渲染时就要用 clientId，
+ * 一抛异常整个应用都出不来，而且手机上没有任何控制台可看。
+ * `getRandomValues` 在非安全上下文里是有的，拿它兜底（同样是 128 位随机）。
+ */
+function newClientId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /** 身份存在这台设备的浏览器里。没有账号系统，这就是全部的身份。 */
 export function getOrCreateClientId(): string {
   let id = localStorage.getItem(LS_CLIENT_ID);
   if (!id) {
-    id = crypto.randomUUID();
+    id = newClientId();
     localStorage.setItem(LS_CLIENT_ID, id);
   }
   return id;

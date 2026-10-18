@@ -11,4 +11,14 @@ if ('serviceWorker' in navigator) {
 }
 
 const root = document.getElementById('app');
-if (root) render(<App />, root);
+if (root) {
+  try {
+    render(<App />, root);
+  } catch (err) {
+    // 首屏渲染抛异常的话默认是一片白，手机上连控制台都没有 ——
+    // 至少把原因显示出来。真实案例：非安全上下文里 crypto.randomUUID 不存在。
+    const e = err as Error;
+    root.textContent = `启动失败：${e.name}: ${e.message}`;
+    console.error('render failed', e);
+  }
+}

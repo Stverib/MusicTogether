@@ -25,6 +25,26 @@ async function twoSides(browser: import('@playwright/test').Browser) {
   return { ctxA, ctxB, a: await ctxA.newPage(), b: await ctxB.newPage() };
 }
 
+test('没有 crypto.randomUUID 时也要能启动', async ({ page }) => {
+  // 非安全上下文里这个 API 根本不存在。安全上下文不只是 HTTPS：
+  // http://localhost 算，http://192.168.1.5 这种局域网地址不算 ——
+  // 而身份正好是在渲染时就要用到的，缺了它整页白屏。
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, 'randomUUID', {
+      value: undefined,
+      configurable: true,
+    });
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '创建一个新房间' })).toBeVisible();
+
+  // 不只是能显示 —— 真的能建房（这一步才会去生成 clientId）
+  await page.getByLabel('你的昵称').fill('阿甲');
+  await page.getByRole('button', { name: '创建一个新房间' }).click();
+  await expect(page.locator('header strong')).toContainText('房间 ', { timeout: 15_000 });
+});
+
 test('聊天消息两端都出现，发送后输入框清空', async ({ browser }) => {
   const { ctxA, ctxB, a, b } = await twoSides(browser);
   const code = await createRoom(a, '阿甲');
