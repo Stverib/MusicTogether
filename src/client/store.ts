@@ -90,6 +90,10 @@ class RoomStore {
     localStorage.setItem(LS_NAME, name);
     this.myName.value = name;
     this.error.value = null;
+    // 从分享链接进来的话，加入之后把地址栏还原成 /
+    // —— 房间码是秘密，没必要一直挂在历史和截图里。房间已经记进 localStorage，
+    // 刷新照样回得来。
+    if (location.pathname.startsWith('/r/')) history.replaceState(null, '', '/');
     this.openSocket(room);
   }
 

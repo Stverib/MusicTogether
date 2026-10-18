@@ -31,7 +31,11 @@ export function Join({ initialCode = '' }: { initialCode?: string }) {
       <div class="brand">
         <div class="disc" aria-hidden="true" />
         <h1>MusicTogether</h1>
-        <p class="tagline">和另一个人听同一首歌，进度条保持同步。</p>
+        <p class="tagline">
+          {initialCode
+            ? '有人邀请你一起听歌。填个昵称就能进房间。'
+            : '和另一个人听同一首歌，进度条保持同步。'}
+        </p>
       </div>
 
       <label>

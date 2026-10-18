@@ -1,4 +1,4 @@
-import { useEffect } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { CachePanel } from './components/CachePanel';
 import { Chat } from './components/Chat';
 import { Join } from './components/Join';
@@ -7,16 +7,30 @@ import { Members } from './components/Members';
 import { Player } from './components/Player';
 import { Queue } from './components/Queue';
 import './player'; // 实例化播放器并挂上 store.onPlayback
+import { codeFromUrl, roomLink, shareRoom } from './share';
 import { savedName, savedRoom, store } from './store';
 
 export function App() {
   const room = store.room.value;
   const status = store.status.value;
 
+  // 分享链接里的房间码只在挂载时读一次。加入之后地址栏会被还原成 /，
+  // 要是每次渲染都读，就会把已经清掉的码又读回来。
+  const [linkedCode] = useState(() => codeFromUrl(location.pathname, location.search));
+  const [note, setNote] = useState<string | null>(null);
+  const noteTimer = useRef<number | null>(null);
+
+  const say = (msg: string) => {
+    setNote(msg);
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    noteTimer.current = window.setTimeout(() => setNote(null), 3200);
+  };
+
   // 刷新页面后自动回到上次的房间。只在挂载时跑一次。
   useEffect(() => {
-    const code = savedRoom();
     const name = savedName();
+    // 分享链接优先于「上次待过的房间」—— 别人刚把你拉进一个新房间
+    const code = linkedCode ?? savedRoom();
     if (code && name && !store.room.value) {
       void store.join(code, name).catch(() => {
         // 失败时 store.error 已经有内容，Join 会显示出来
@@ -24,7 +38,16 @@ export function App() {
     }
   }, []);
 
-  if (!room) return <Join />;
+  if (!room) return <Join initialCode={linkedCode ?? ''} />;
+
+  const onShare = async () => {
+    const outcome = await shareRoom(room.code);
+    if (outcome === 'shared') say('已分享');
+    else if (outcome === 'copied') say('链接已复制，发给对方就能进来');
+    // 兜底路径：把链接显示出来让人手动复制，不然这个按钮在
+    // 局域网 HTTP 下就是个哑巴
+    else say(`复制失败，请手动复制：${roomLink(room.code)}`);
+  };
 
   return (
     <main class="room">
@@ -36,6 +59,9 @@ export function App() {
         </strong>
         <span class={`dot ${status}`} title={status} />
         <span class="grow" />
+        <button class="icon" title="分享房间" onClick={() => void onShare()}>
+          分享
+        </button>
         <button class="icon" title="离开房间" onClick={() => store.leave()}>
           离开
         </button>
@@ -60,6 +86,8 @@ export function App() {
           <CachePanel />
         </div>
       </div>
+
+      {note && <div class="toast">{note}</div>}
     </main>
   );
 }

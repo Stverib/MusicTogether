@@ -833,6 +833,26 @@ input::placeholder {
   color: var(--ember-700);
 }
 
+/* 一条会自己消失的提示。刻意不叫 .banner —— 那个 class 被测试用来判断
+   连接状态，页面上必须只有一个 */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: min(92vw, 460px);
+  padding: 11px 18px;
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 13.5px;
+  text-align: center;
+  word-break: break-all;
+  box-shadow: 0 10px 30px -10px rgba(80, 45, 20, 0.65);
+  animation: rise 0.3s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
 /* ============================================================
    动效
    ============================================================ */
