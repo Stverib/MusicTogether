@@ -1,4 +1,5 @@
 @AGENTS.md
+@memory/progress.md
 
 # Claude Code 专用补充
 

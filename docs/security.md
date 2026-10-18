@@ -221,7 +221,9 @@ CI 里跑 `npm audit`，但**不要盲目 `npm audit fix`**（可能引入破坏
 
 ## 3. 必须有的安全响应头
 
-所有响应统一加（放在 Worker 的最外层，一处生效）：
+API 响应统一在 Worker 最外层加（`withSecurity()`，一处生效）。
+**静态外壳不走 Worker**（`run_worker_first: ["/api/*"]`，为了不把静态资源
+也算进 Worker 请求额度），它的同一组头写在 `src/client/public/_headers` 里。
 
     Content-Security-Policy: <见 2.6>
     X-Content-Type-Options: nosniff
@@ -231,6 +233,13 @@ CI 里跑 `npm audit`，但**不要盲目 `npm audit fix`**（可能引入破坏
 
 `Referrer-Policy: no-referrer` 很重要且容易被忽略：**房间码在 URL 路径里**，
 任何外链跳转都会把它放进 `Referer` 泄漏出去。
+
+两份 CSP 是手写的，`test/e2e/security.spec.ts` 里有一条用例直接比对
+「静态外壳的 CSP」与「API 的 CSP」是否逐字符相同 —— 改一处漏另一处会红。
+
+`script-src` 里**没有** `unsafe-inline`，所以 `index.html` 里不能有任何内联
+`<script>`（Service Worker 的注册因此挪进了 `main.tsx`）。给 CSP 开
+`unsafe-inline` 等于把 XSS 防线拆掉，这条没有商量余地。
 
 ---
 
@@ -253,14 +262,67 @@ CI 里跑 `npm audit`，但**不要盲目 `npm audit fix`**（可能引入破坏
 | 超长聊天被丢弃 | `test/integration/chat.test.ts` | 资源耗尽 |
 | 建房与加入的限速生效 | `test/integration/ratelimit.test.ts` | 枚举 |
 
+端到端那一层（`test/e2e/security.spec.ts`，12 条）补的是集成测试看不到的部分：
+
+| 用例 | 防的是 |
+|------|--------|
+| 静态外壳带安全头，且 CSP 与 API 逐字符一致 | 头漂移、点开页面就没有防护 |
+| 页面里没有内联脚本 | 与 `script-src 'self'` 冲突（PWA 会静默失效） |
+| Service Worker 能注册成功 | CSP 把 SW 挡掉导致离线/安装失效 |
+| 聊天里的 `<img onerror>` 原样显示为文本，不弹窗 | 存储型 XSS |
+| 恶意文件名在队列里也是纯文本 | 存储型 XSS |
+| 上传 `.html` 后访问流地址，Content-Type 不是 `text/html` | 存储型 XSS |
+| 路径穿越与非法 trackId 被挡（带会话） | 路径穿越 |
+| 无 Cookie / 伪造令牌 → 401 | 未授权访问 |
+| 拿着 A 房间的会话访问 B 房间 → 401 | 横向越权 |
+| 跨站 Origin 的 WS 升级 → 403，同源的能连上 | CSRF |
+| 不存在的房间 → 404，响应里没有任何 CORS 头 | 枚举、信息泄漏 |
+| 非上传者删云端文件 → 403，上传者 → 200 | 越权删除 |
+
 ---
 
 ## 5. 上线前检查清单
 
+已完成的（2026-10-18 本地验证）：
+
+- [x] 仓库里 grep 不到任何密钥（`git log -p --all | grep -i secret` 只剩变量名与测试夹具）
+- [x] 上述所有回归用例是绿的（集成 171 条 + 端到端 34 条）
+- [x] 手工渗透验证（curl，见下方记录）
+- [x] 静态外壳与 API 都带上了全部安全响应头
+- [x] 生产环境 Cookie 带 `Secure`（`sessionCookie(..., secure)`，按 `url.protocol === 'https:'` 判定）
+
+部署时才能做、**必须在上线前补上**的：
+
 - [ ] `wrangler secret put SESSION_SECRET` 用的是 32 字节以上随机值
-- [ ] 仓库里 grep 不到任何密钥（`git log -p | grep -i secret`）
-- [ ] 生产环境 Cookie 带 `Secure`
-- [ ] R2 桶**没有**开公开访问（没有自定义域、没有 `r2.dev`）
-- [ ] 上述所有回归用例是绿的
-- [ ] 用两个浏览器 + 一个 curl 手工验证过 Origin 校验确实拦得住
+      （本地 `.dev.vars` 里那个只用于开发，绝不能带到生产）
+- [ ] R2 桶**没有**开公开访问（没有自定义域、没有 `r2.dev`）——
+      需要 Cloudflare 账号，本地无法验证
 - [ ] Cloudflare 后台开了 HSTS
+
+### 手工渗透验证记录（2026-10-18，wrangler dev）
+
+未带会话时一律先撞上会话检查（这是对的：不向未认证者透露任何东西）：
+
+| 请求 | 结果 |
+|------|------|
+| `GET /api/rooms/AAAAAA/tracks/..%2F..%2Fsecret/stream` | 401 |
+| `POST /api/rooms/abc/join`（房间码长度不对） | 400 |
+| `GET /api/rooms/AAAAAA/state`（无 Cookie） | 401 |
+| `GET /api/me` + `Cookie: mt_sess=forged.signature` | 401 |
+| `GET /api/rooms/AAAAAA/ws` + `Origin: https://evil.com` | 401 |
+| `GET /api/health` + `Origin: https://evil.com` | 无任何 `access-control-*` 头 |
+
+带上真实会话后再打一遍，才验到真正的校验点：
+
+| 请求 | 结果 |
+|------|------|
+| `GET .../tracks/..%2F..%2Fsecret/stream`（带会话） | 400 |
+| `GET .../tracks/not-a-uuid/stream`（带会话） | 400 |
+| `GET .../ws` + `Origin: https://evil.com`（带会话） | 403 |
+| `GET .../ws` 不带 `Origin`（带会话） | 403 |
+| `GET /api/rooms/<自己的房间>/state` | 200 |
+| `GET /api/rooms/AAAAAA/state`（别人的房间） | 401 |
+
+限速没有在这张表里手工验：`.dev.vars` 为了跑 E2E 把 `RATE_LIMIT_SCALE`
+放宽了 50 倍，手工 curl 打不出 429。真正的限额由
+`test/integration/ratelimit.test.ts` 覆盖 —— 那一层显式把 scale 锁回 1。

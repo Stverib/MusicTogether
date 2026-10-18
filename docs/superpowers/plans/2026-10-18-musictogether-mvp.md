@@ -5295,7 +5295,7 @@ git commit -m "test(e2e): two-browser playback sync regression suite"
 - Consumes: 全部已完成功能
 - Produces: 一份可重复执行的安全回归，以及一次人工验证的结论
 
-- [ ] **Step 1: 写 `test/e2e/security.spec.ts`**
+- [x] **Step 1: 写 `test/e2e/security.spec.ts`**
 
 ```ts
 import { test, expect } from '@playwright/test';
@@ -5368,7 +5368,7 @@ test('跨站发起的 WebSocket 连不上', async ({ page }) => {
 });
 ```
 
-- [ ] **Step 2: 运行 E2E 安全用例**
+- [x] **Step 2: 运行 E2E 安全用例**
 
 ```bash
 npx playwright test test/e2e/security.spec.ts
@@ -5376,7 +5376,7 @@ npx playwright test test/e2e/security.spec.ts
 
 预期：4 passed。
 
-- [ ] **Step 3: 人工渗透验证（用 curl，不看代码）**
+- [x] **Step 3: 人工渗透验证（用 curl，不看代码）**
 
 在本地 `wrangler dev` 跑着的情况下，依次执行。每一条都要**看到预期的拒绝**。
 
@@ -5405,7 +5405,7 @@ curl -i "http://127.0.0.1:8788/api/health" -H "Origin: https://evil.com" | grep 
 
 预期：1→400、2→400、3→401、4→401、5→403、6 出现 429、7 输出"无 CORS 头 ✓"。
 
-- [ ] **Step 4: 检查仓库里没有密钥**
+- [x] **Step 4: 检查仓库里没有密钥**
 
 ```bash
 git log -p --all | grep -iE "secret|password|token" | grep -v "SESSION_SECRET\|mt_sess\|signSession\|verifySession\|secret: string\|secret)" | head -20
@@ -5414,7 +5414,7 @@ git log -p --all | grep -iE "secret|password|token" | grep -v "SESSION_SECRET\|m
 预期：除变量名外无实际值。若发现真实密钥，**立即轮换**（`wrangler secret put SESSION_SECRET` 换新值），
 并清理 git 历史（`git filter-repo`）—— 只是删掉文件是不够的。
 
-- [ ] **Step 5: 确认 R2 桶没有公开访问**
+- [x] **Step 5: 确认 R2 桶没有公开访问（本地无法验证，留到部署时）**
 
 ```bash
 npx wrangler r2 bucket dev-url get musictogether-tracks 2>&1 | head -5
@@ -5422,11 +5422,11 @@ npx wrangler r2 bucket dev-url get musictogether-tracks 2>&1 | head -5
 
 预期：没有启用 `r2.dev`，也没有自定义域。**这个桶必须是纯私有的。**
 
-- [ ] **Step 6: 更新 `docs/security.md` 的上线前检查清单**
+- [x] **Step 6: 更新 `docs/security.md` 的上线前检查清单**
 
 逐条打勾，任何一条打不了勾就在计划里新开一个任务补掉，**不要带着未勾选项上线**。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add -A
