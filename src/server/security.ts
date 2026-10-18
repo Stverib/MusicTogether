@@ -61,6 +61,18 @@ export function originAllowed(request: Request): boolean {
   }
 }
 
+/**
+ * API 响应用的 CSP。
+ *
+ * 静态外壳（index.html / JS / CSS）不走 Worker，由平台直接送出，
+ * 它的同一条策略写在 `src/client/public/_headers` 里。
+ * 两份必须一模一样 —— E2E 里有一条用例专门比对它们，改一处漏另一处会红。
+ * 之所以不能让静态资源也过 Worker：`new Response(assets.body, ...)`
+ * 重新包装会碰上 Content-Encoding 的坑，得不偿失。
+ *
+ * script-src 没有 'unsafe-inline'，所以 index.html 里不能有内联脚本
+ * （Service Worker 注册因此在 main.tsx 里）。
+ */
 export const CSP = [
   "default-src 'self'",
   "script-src 'self'",

@@ -89,6 +89,16 @@ Durable Object，用 WebSocket Hibernation 维持长连接并广播服务端权�
 13. **新增运行时依赖需要理由。** 当前运行时依赖只有 `preact` 与 `@preact/signals`。
     大多数需求用标准 Web API 就够了。
 
+### 响应头与静态外壳
+
+14. **CSP 有两份，必须逐字符一致。** API 的在 `src/server/security.ts` 的 `CSP`，
+    静态外壳（不走 Worker）的在 `src/client/public/_headers`。
+    `test/e2e/security.spec.ts` 有一条用例直接比对两者，改一处漏另一处会红。
+
+15. **`index.html` 里不能有任何内联 `<script>`。** `script-src` 没有
+    `unsafe-inline`，内联脚本会被静默挡掉（Service Worker 就是这么失效过一次）。
+    需要启动代码就写进 `main.tsx`。同理，绝不给 CSP 开 `unsafe-inline`。
+
 ---
 
 ## 提交约定
@@ -121,3 +131,6 @@ Durable Object，用 WebSocket Hibernation 维持长连接并广播服务端权�
 - R2 响应**必须**流式转发，`206` 与 `Content-Range` **必须**手写
 - 客户端**必须**每 25 秒心跳（空闲超时存在但时长未公开）
 - 兜底同步帧**只在播放中**调度，暂停时必须取消 alarm
+- Service Worker 的预缓存清单**不能**写死带哈希的 JS/CSS 文件名 ——
+  `addAll` 会因为 404 整体失败，SW 静默装不上（离线与"添加到主屏幕"一起失效）。
+  外壳资源由 fetch 处理器在首次成功请求时顺手缓存

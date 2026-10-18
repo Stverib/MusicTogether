@@ -5,7 +5,12 @@
 // navigator.storage.persist() 的保护。
 
 const SHELL = 'mt-shell-v1';
-const SHELL_FILES = ['/', '/styles.css', '/manifest.webmanifest'];
+
+// 只预缓存入口和清单。
+// JS/CSS 带内容哈希，文件名每次构建都变 —— 把它们写死在这里，
+// install 阶段的 addAll 会因为 404 整体失败，SW 根本装不上，
+// 离线也就无从谈起。它们改由 fetch 处理器在第一次成功请求时顺手缓存。
+const SHELL_FILES = ['/', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
@@ -31,8 +36,17 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
 
-  // 网络优先，断网时回退到外壳
+  // 网络优先，断网时回退到缓存的外壳
   e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request).then((r) => r ?? caches.match('/'))),
+    fetch(e.request)
+      .then((res) => {
+        // 只留下成功的同源响应，断网时才有的可用
+        if (res.ok && res.type === 'basic') {
+          const copy = res.clone();
+          void caches.open(SHELL).then((c) => c.put(e.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request).then((r) => r ?? caches.match('/'))),
   );
 });

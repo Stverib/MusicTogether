@@ -11,10 +11,5 @@
   <body>
     <div id="app"></div>
     <script type="module" src="/main.tsx"></script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
-      }
-    </script>
   </body>
 </html>
