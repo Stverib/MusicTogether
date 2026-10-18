@@ -38,6 +38,7 @@ Durable Object，用 WebSocket Hibernation 维持长连接并广播服务端权�
 - `src/shared/` —— 前后端共用，**只能是纯函数与类型**，不得 import DOM 或 Workers API
 - `src/server/` —— Worker 侧
 - `src/client/` —— 浏览器侧
+- `scripts/` —— 开发辅助脚本（`dev-lan.mjs`：局域网直连启动器）
 - `test/unit/` 跑在 node；`test/integration/` 跑在 workerd；`test/e2e/` 用 Playwright
 
 ---

@@ -129,14 +129,43 @@ PWA 装不上 / 没有离线能力；局域网若做了客户端隔离则连不�
   （`wrangler r2 bucket create` → `wrangler secret put SESSION_SECRET` → `npm run deploy`）
   本身没错，但**必须先解决域名与 R2 这两件事**，否则部署出来大陆打不开
 - 部署后要补的三条上线检查（本地无法验证）：生产密钥、R2 桶不公开、HSTS
-- **3D 舞台**：设计规格已写
-  （`docs/superpowers/specs/2026-10-18-3d-stage-design.md`），等用户过一遍
-  再出实现计划，然后用新 worktree 做。首个主题「晨光」（粉白 / 浅橙 / 淡墨绿），
-  星空 / 海边 / 赛博朋克暂时不做。主题是房间级、服务端权威（要动协议与 DO）。
+- **3D 舞台**：设计规格与实现计划都已写好并获用户批准
+  （`docs/superpowers/specs/2026-10-18-3d-stage-design.md`、
+  `docs/superpowers/plans/2026-10-18-3d-stage.md`，10 个任务）。
+  在 `feature/3d-stage` 分支上做（worktree `.worktrees/3d-stage`）。
+  首个主题「晨光」（粉白 / 浅橙 / 淡墨绿），星空 / 海边 / 赛博朋克暂时不做。
+  主题是房间级、服务端权威（要动协议与 DO）。
   **可行性已实测**：three r186 的核心 0 处 `eval` / `new Function` / blob worker，
-  所以 CSP 一行都不用改，红线 15 守得住
+  所以 CSP 一行都不用改，红线 15 守得住。
+  进度与卡住的地方见下一节
 - `cloudflare:test` 的 `env`/`SELF` 已废弃，应迁移到 `cloudflare:workers`
   的 `env` 与 `exports.default.fetch()`
+
+### 未完成的 3D 改造（接手的人先看这个）
+
+分支布局，三个都在，别搞混：
+
+| 分支 | 状态 |
+|------|------|
+| `master` | 稳定版。**没有**成员在线状态、聊天落库、聊天框那三件 |
+| `feature/3d-stage` | 那三件 + Task 1（主题白名单）。工作区干净，typecheck 干净，180 条全绿，构建与起服务都实测过 |
+| `wip/3d-theme-server` | 3D 计划的 Task 2 做到一半，**测试是红的**，停在这里 |
+
+**Task 2 卡在哪**：`test/integration/theme.test.ts` 连加载都失败，报
+`Cannot read properties of undefined (reading 'config')`。原因**没查清**。
+两条线索，都不足以定论：
+
+- `import { env } from 'cloudflare:test'` 本身应该没问题 ——
+  `test/integration/media.test.ts` 用的就是它，而且一直是绿的
+- 中途怀疑过"要换成 `cloudflare:workers` 的 env"，但**验证方式本身不可靠**：
+  我用 `ls -t | head -1` 挑 vitest 的原始日志，挑到过期的文件，
+  所以那次"改了还是错"的结论不算数。下次直接从输出里给的确切日志路径读
+
+Task 2 要改的东西都已经在 wip 分支上了，接着调试即可，不用重写：
+`types.ts` 的 `theme`、`protocol.ts` 的两条消息、`room.ts` 的
+`loadFromStorage()` 迁移 + `init` 默认值 + `case 'theme'`，
+外加一个只给测试用的 `/__test_write_state` 端点（DO 没有公网路由，
+Worker 也不转发这个路径，不构成外部攻击面）。
 
 ### 执行中发现的、值得记住的事
 
@@ -160,3 +189,14 @@ PWA 装不上 / 没有离线能力；局域网若做了客户端隔离则连不�
   那层不在 node 的进程树里，程序化收尾杀不干净，会在 `0.0.0.0:8787` 上留下
   孤儿 `workerd`。起 wrangler 直接 `node node_modules/wrangler/bin/wrangler.js`，
   别过 `npx`
+- **新建 worktree 之后要手动 `cp .dev.vars .dev.vars`**。它是 gitignore 的，
+  worktree 等于一份全新检出，不补的话集成测试整个跑不起来
+  （报的是 `SESSION_SECRET missing`，一看就懂，但第一次会愣一下）
+- **`EnterWorktree` 工具在这个仓库用不了** —— harness 认为它不是 git 仓库
+  （环境里那句 `Is a git repository: false`），而 Bash 里的 git 一切正常。
+  退回手搓 `git worktree add .worktrees/<名字> -b <分支>`，
+  记得先把 `.worktrees/` 写进 `.gitignore`
+- **RTK 钩子会把 `ls` 的输出改成带体积的形式**，`ls | sed 's/.*\.//'` 这类
+  按行切字段的统计会静默算错（切到体积上）。要统计文件类型就用 Node 或 `find`
+- **RTK 会把 vitest 的输出压成 `PASS (n) FAIL (n)`**，失败原因全看不见。
+  它同时留了原始日志，路径在输出里，从那里读 JSON 才拿得到 message
