@@ -35,6 +35,20 @@ export type Playback = {
   seq: number;
 };
 
+/**
+ * 一条聊天消息。
+ *
+ * 与第一版不同，聊天**现在会落库**（决策 D12）。`id` 是房间内单调递增的序号，
+ * 用来给"取更早的消息"当游标 —— 用时间戳当游标不行，同一毫秒内可能有多条。
+ */
+export type ChatMessage = {
+  id: number;
+  from: string;
+  name: string;
+  text: string;
+  at: number;
+};
+
 export type RoomState = {
   code: string;
   name: string;

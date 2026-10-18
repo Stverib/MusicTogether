@@ -1,12 +1,10 @@
 import { computed, signal } from '@preact/signals';
-import type { Playback, RoomState, Track } from '../shared/types';
+import type { ChatMessage, Playback, RoomState, Track } from '../shared/types';
 import { connect, type ConnStatus } from './ws';
 
 const LS_CLIENT_ID = 'mt_client_id';
 const LS_ROOM = 'mt_room';
 const LS_NAME = 'mt_name';
-
-export type ChatMessage = { from: string; name: string; text: string; at: number };
 
 /**
  * `crypto.randomUUID()` **只在安全上下文里存在**。
@@ -40,6 +38,9 @@ class RoomStore {
   readonly status = signal<ConnStatus>('closed');
   readonly error = signal<string | null>(null);
   readonly chat = signal<ChatMessage[]>([]);
+  /** 房间里聊天记录的总条数。大于本地已加载的条数就说明还有更早的没取 */
+  readonly chatTotal = signal(0);
+  readonly loadingOlder = signal(false);
   readonly myName = signal<string>(savedName());
 
   private conn: ReturnType<typeof connect> | null = null;
@@ -114,6 +115,9 @@ class RoomStore {
         const room = m.room as RoomState;
         this.room.value = room;
         this.error.value = null;
+        // 快照只带最近一页，更早的靠 chatTotal 与「加载更早」按钮去取
+        this.chat.value = (m.chat as ChatMessage[] | undefined) ?? [];
+        this.chatTotal.value = typeof m.chatTotal === 'number' ? m.chatTotal : this.chat.value.length;
         // 快照是权威的，直接用它对齐播放器 —— 中途进房/重连后立即就能对上，
         // 不必等下一次周期性同步帧
         if (typeof m.serverNow === 'number') {
@@ -150,7 +154,9 @@ class RoomStore {
       }
 
       case 'chat':
-        this.chat.value = [...this.chat.value, m as ChatMessage].slice(-200);
+        // 不再截断：聊天现在会落库，界面上的条数该和房间里的一致
+        this.chat.value = [...this.chat.value, m as ChatMessage];
+        this.chatTotal.value = Math.max(this.chatTotal.value, this.chat.value.length);
         break;
 
       case 'error':
@@ -173,11 +179,40 @@ class RoomStore {
     this.conn?.send(msg);
   }
 
+  /**
+   * 取更早的一页聊天。
+   *
+   * 服务端一条都没删 —— 只是 WebSocket 单帧装不下全部，所以快照只带最近一页，
+   * 更早的按需拉。游标用消息自己的 id，不用时间戳：同一毫秒内可能有多条。
+   */
+  async loadOlderChat(): Promise<void> {
+    const room = this.room.value;
+    const oldest = this.chat.value[0];
+    if (!room || !oldest || this.loadingOlder.value) return;
+
+    this.loadingOlder.value = true;
+    try {
+      const res = await fetch(
+        `/api/rooms/${encodeURIComponent(room.code)}/chat?before=${oldest.id}`,
+      );
+      if (!res.ok) return;
+      const older = (await res.json()) as ChatMessage[];
+      if (Array.isArray(older) && older.length) {
+        this.chat.value = [...older, ...this.chat.value];
+      }
+    } catch {
+      // 拉不到就算了，界面上那颗按钮还在，可以再点
+    } finally {
+      this.loadingOlder.value = false;
+    }
+  }
+
   leave(): void {
     this.conn?.close();
     this.conn = null;
     this.room.value = null;
     this.chat.value = [];
+    this.chatTotal.value = 0;
     this.status.value = 'closed';
     localStorage.removeItem(LS_ROOM);
   }

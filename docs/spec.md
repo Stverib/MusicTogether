@@ -303,7 +303,10 @@ currentPosition(now) = isPlaying ? positionMs + (now - anchorAt) : positionMs
 "现在应该播到哪儿"。`state` 快照漏掉它会很难查 —— 中途进房的人位置是对的，
 但要干等到下一次兜底同步帧（最多 30 秒）才出声。
 
-**聊天不落库**：只广播给当前在线成员，重连后看不到历史。
+**聊天会落库**（决策 D12，推翻了原来的"不落库"）：消息存在 DO 的独立存储键里，
+一条不删；`state` 快照只带最近 `CHAT_HISTORY_PAGE`（200）条，
+更早的走 `GET /api/rooms/:code/chat?before=<id>` 按需取。
+快照不带全量的原因是硬的：WebSocket 单帧有 1 MiB 上限。
 
 ### 6.3 连接保活与额度纪律
 
@@ -330,6 +333,7 @@ Cloudflare 会在一段**未公开的**空闲时长后掐断 WebSocket，且网�
 | `POST` | `/api/rooms` | 创建房间，返回 `{code}` |
 | `POST` | `/api/rooms/:code/join` | 加入，返回 `{clientId, room}` 并种 Cookie |
 | `GET` | `/api/rooms/:code/state` | 拉取快照（WS 之外的兜底） |
+| `GET` | `/api/rooms/:code/chat` | 取更早的聊天历史，`?before=<消息 id>` 为游标；不带游标就是最新一页 |
 | `POST` | `/api/rooms/:code/tracks` | 登记元数据，返回 `{trackId, uploadUrl}` |
 | `PUT` | `/api/rooms/:code/tracks/:id/blob` | 上传文件字节 → R2 |
 | `GET` | `/api/rooms/:code/tracks/:id/stream` | 流式读取，支持 `Range`，返回 206 |

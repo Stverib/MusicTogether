@@ -794,11 +794,31 @@ input::placeholder {
   list-style: none;
   margin: 0 0 12px;
   padding: 0;
-  max-height: 260px;
+  /* 固定高度而不是 max-height：消息少的时候框也是这么高，
+     整个面板不会随着聊天忽长忽短，右边的成员/缓存面板也就不会被顶来顶去 */
+  height: 260px;
   overflow-y: auto;
+  /* 滚到头之后别把滚动传给页面 —— 手机上滑历史很容易一滑就整页跟着动 */
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 9px;
+}
+.chat .load-older {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.chat .load-older:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .chat .messages li {
   display: flex;

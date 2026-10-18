@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { member, nextOfType, roomWithMembers, stateOf } from './helpers';
+import { SELF } from 'cloudflare:test';
+import { ORIGIN, chatOf, member, nextIp, nextOfType, roomWithMembers, stateOf } from './helpers';
 
 describe('聊天', () => {
   it('消息广播给房间里所有人，含发送者', async () => {
@@ -61,19 +62,7 @@ describe('聊天', () => {
     expect(frame.text).toBe('你好');
   });
 
-  it('聊天不落库：房间快照里没有任何历史消息字段', async () => {
-    const { code, members } = await roomWithMembers(['阿甲']);
-    const a = members[0]!;
-
-    a.ws.send(JSON.stringify({ type: 'chat', text: '老消息' }));
-    await nextOfType(a.next, 'chat');
-
-    const state = await stateOf(code, a.cookie);
-    expect(state).not.toHaveProperty('messages');
-    expect(state).not.toHaveProperty('chat');
-  });
-
-  it('后来的人看不到之前发过的消息', async () => {
+  it('聊天落库：后来的人在快照里就能看到历史', async () => {
     const { code, members } = await roomWithMembers(['阿甲']);
     const a = members[0]!;
 
@@ -82,7 +71,64 @@ describe('聊天', () => {
 
     const late = await member(code, '丙');
     const state = await nextOfType(late.next, 'state');
-    expect(JSON.stringify(state)).not.toContain('老消息');
+    expect(state.chat.map((m: any) => m.text)).toEqual(['老消息']);
+    expect(state.chat[0].name).toBe('阿甲');
+    expect(state.chat[0].id).toBe(1);
+    expect(state.chatTotal).toBe(1);
+  });
+
+  it('重连之后历史还在 —— 是落库，不是只留在内存里', async () => {
+    const { code, members } = await roomWithMembers(['阿甲']);
+    const a = members[0]!;
+    a.ws.send(JSON.stringify({ type: 'chat', text: '第一条' }));
+    await nextOfType(a.next, 'chat');
+
+    const again = await member(code, '阿甲', { clientId: a.clientId });
+    const state = await nextOfType(again.next, 'state');
+    expect(state.chat.map((m: any) => m.text)).toEqual(['第一条']);
+  });
+
+  it('消息 id 在一个房间里单调递增', async () => {
+    const { members } = await roomWithMembers(['阿甲']);
+    const a = members[0]!;
+    for (const t of ['一', '二', '三']) a.ws.send(JSON.stringify({ type: 'chat', text: t }));
+
+    const ids: number[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await nextOfType(a.next, 'chat')).id);
+    expect(ids).toEqual([1, 2, 3]);
+  });
+
+  it('聊天不进 RoomState —— 它有自己的存储键，不跟着播放状态一起重写', async () => {
+    const { code, members } = await roomWithMembers(['阿甲']);
+    const a = members[0]!;
+    a.ws.send(JSON.stringify({ type: 'chat', text: '一条' }));
+    await nextOfType(a.next, 'chat');
+
+    const state = await stateOf(code, a.cookie);
+    expect(state).not.toHaveProperty('chat');
+    expect(state).not.toHaveProperty('messages');
+  });
+
+  it('HTTP 的 /chat?before= 按游标取更早的消息', async () => {
+    const { code, members } = await roomWithMembers(['阿甲']);
+    const a = members[0]!;
+    for (const t of ['一', '二', '三']) a.ws.send(JSON.stringify({ type: 'chat', text: t }));
+    for (let i = 0; i < 3; i++) await nextOfType(a.next, 'chat');
+
+    // 不带游标 = 最新一页
+    expect((await chatOf(code, a.cookie)).map((m: any) => m.text)).toEqual(['一', '二', '三']);
+    // before=3 = 取 id < 3 的那两条
+    expect((await chatOf(code, a.cookie, 3)).map((m: any) => m.text)).toEqual(['一', '二']);
+    // 游标不合法时安静地退回最新一页，而不是 500
+    expect((await chatOf(code, a.cookie, 'abc')).map((m: any) => m.text)).toEqual(['一', '二', '三']);
+  });
+
+  it('没有会话就读不到聊天历史', async () => {
+    const { code } = await roomWithMembers(['阿甲']);
+    const res = await SELF.fetch(`${ORIGIN}/api/rooms/${code}/chat`, {
+      headers: { 'CF-Connecting-IP': nextIp() },
+    });
+    expect(res.status).toBe(401);
   });
 
   it('没有 text 字段的消息被忽略', async () => {

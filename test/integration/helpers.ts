@@ -68,6 +68,16 @@ export async function stateOf(code: string, cookie: string): Promise<any> {
   return res.json();
 }
 
+/** 取聊天历史。`before` 传消息 id 就是"取这一条之前的" */
+export async function chatOf(code: string, cookie: string, before?: number | string): Promise<any[]> {
+  const q = before === undefined ? '' : `?before=${encodeURIComponent(String(before))}`;
+  const res = await SELF.fetch(`${ORIGIN}/api/rooms/${code}/chat${q}`, {
+    headers: { Cookie: cookie, 'CF-Connecting-IP': nextIp() },
+  });
+  if (!res.ok) throw new Error(`chat failed: ${res.status}`);
+  return res.json();
+}
+
 /** 发起升级但**不** accept —— 消息在 accept 之前不会投递 */
 export async function connectWs(
   code: string,
@@ -147,7 +157,11 @@ export async function waitForQueue(
 export type Connected = Member & { ws: WebSocket; next: () => Promise<any> };
 
 /** 加入房间并连上 WebSocket，返回可直接读消息的句柄 */
-export async function member(code: string, name: string, opts: FetchOpts = {}): Promise<Connected> {
+export async function member(
+  code: string,
+  name: string,
+  opts: FetchOpts & { clientId?: string } = {},
+): Promise<Connected> {
   const ip = opts.ip ?? nextIp();
   const m = await joinRoom(code, name, { ...opts, ip });
   if (m.status !== 200) throw new Error(`join failed: ${m.status}`);

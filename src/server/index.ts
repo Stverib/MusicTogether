@@ -143,6 +143,14 @@ async function handle(request: Request, env: Env): Promise<Response> {
 
   if (rest === '/state') return stub.fetch('https://do/state');
 
+  if (rest === '/chat' && request.method === 'GET') {
+    // 游标只接受纯数字。不做这个校验就等于把一个任意字符串透传给 DO，
+    // 而它会被 Number() 变成 NaN —— 与其依赖下游的容错，不如在这里挡掉
+    const before = url.searchParams.get('before') ?? '';
+    const query = /^\d+$/.test(before) ? `?before=${before}` : '';
+    return stub.fetch(`https://do/chat-history${query}`);
+  }
+
   if (rest === '/ws') {
     // WebSocket 握手不受同源策略与 SameSite 保护，必须单独校验 Origin（安全文档 §2.3）
     if (!originAllowed(request)) return fail(403, 'bad origin');

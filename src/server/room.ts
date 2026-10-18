@@ -7,17 +7,26 @@ import {
   startAnchor,
 } from '../shared/playback';
 import {
+  CHAT_HISTORY_PAGE,
   CHAT_MAX_LENGTH,
   PING,
   PONG,
   parseClientMessage,
   type ServerMessage,
 } from '../shared/protocol';
-import type { Playback, RoomState, Track } from '../shared/types';
+import type { ChatMessage, Playback, RoomState, Track } from '../shared/types';
 import type { Env } from './env';
 import { MAX_ROOM_BYTES, MAX_TRACKS_PER_ROOM } from './media';
 
 const STORAGE_KEY = 'room';
+
+/**
+ * 聊天单独一个存储键，**不放进 RoomState**。
+ *
+ * 原因是 RoomState 每次播放/暂停/切歌都会整个 save() 一遍；聊天并进去的话，
+ * 每次点暂停都要把整份聊天记录重写一次存储，而它只会越来越大。
+ */
+const CHAT_KEY = 'chat';
 
 /** 播放中每 30 秒发一次兜底同步帧。暂停时完全不发（免费额度的生命线）。 */
 const SYNC_INTERVAL_MS = 30_000;
@@ -41,6 +50,9 @@ const MAX_MEMBERS = 20;
  */
 export class RoomDO extends DurableObject<Env> {
   private room: RoomState | null = null;
+  private chat: ChatMessage[] = [];
+  /** 房间内单调递增的消息序号，也是"取更早"的游标 */
+  private chatSeq = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -48,6 +60,10 @@ export class RoomDO extends DurableObject<Env> {
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
     this.ctx.blockConcurrencyWhile(async () => {
       this.room = (await this.ctx.storage.get<RoomState>(STORAGE_KEY)) ?? null;
+      this.chat = (await this.ctx.storage.get<ChatMessage[]>(CHAT_KEY)) ?? [];
+      // 序号从已有记录的末尾续上。不这么做的话 DO 被驱逐一次，
+      // 新消息的 id 就从头开始，"取更早"的游标会指到错的地方
+      this.chatSeq = this.chat[this.chat.length - 1]?.id ?? 0;
     });
   }
 
@@ -98,6 +114,13 @@ export class RoomDO extends DurableObject<Env> {
     switch (path) {
       case '/state':
         return Response.json(this.room);
+      case '/chat-history': {
+        const raw = url.searchParams.get('before');
+        const before = raw === null ? Number.POSITIVE_INFINITY : Number(raw);
+        return Response.json(
+          this.chatHistory(Number.isFinite(before) ? before : Number.POSITIVE_INFINITY),
+        );
+      }
       case '/ws':
         return this.handleWebSocket(request);
       case '/track-add':
@@ -237,6 +260,10 @@ export class RoomDO extends DurableObject<Env> {
       JSON.stringify({
         type: 'state',
         room: this.requireRoom(),
+        // 只带最近一页。全量发会撞上 WebSocket 单帧 1 MiB 的上限，
+        // 更早的走 /chat-history 按需取
+        chat: this.chatHistory(Number.POSITIVE_INFINITY),
+        chatTotal: this.chat.length,
         serverNow: Date.now(),
       } satisfies ServerMessage),
     );
@@ -388,14 +415,17 @@ export class RoomDO extends DurableObject<Env> {
         const text = msg.text.trim();
         if (!text || text.length > CHAT_MAX_LENGTH) break;
         const member = room.members.find((m) => m.clientId === tag);
-        // 原样广播，不做 HTML 转义 —— 转义是输出端（前端）的责任
-        this.broadcast({
-          type: 'chat',
+        const message: ChatMessage = {
+          id: ++this.chatSeq,
           from: tag,
           name: member?.name ?? '匿名',
+          // 原样存、原样发，不做 HTML 转义 —— 转义是输出端（前端）的责任
           text,
           at: Date.now(),
-        });
+        };
+        this.chat.push(message);
+        await this.ctx.storage.put(CHAT_KEY, this.chat);
+        this.broadcast({ type: 'chat', ...message });
         break;
       }
 
@@ -434,6 +464,13 @@ export class RoomDO extends DurableObject<Env> {
     }
     this.broadcast({ type: 'sync', playback: room.playback, serverNow: Date.now() });
     await this.ctx.storage.setAlarm(Date.now() + SYNC_INTERVAL_MS);
+  }
+
+  /** 取 `before` 之前的最近一页。`before` 为 Infinity 就是取最新那一页 */
+  private chatHistory(before: number): ChatMessage[] {
+    const firstAtOrAfter = this.chat.findIndex((m) => m.id >= before);
+    const cut = firstAtOrAfter === -1 ? this.chat.length : firstAtOrAfter;
+    return this.chat.slice(Math.max(0, cut - CHAT_HISTORY_PAGE), cut);
   }
 
   // ---------- 内部 ----------
