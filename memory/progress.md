@@ -14,7 +14,7 @@
   播放锚点同步、上传 R2、Range 流式播放、队列、前端骨架、播放器、
   上传 UI、本地缓存、聊天、断线重连、PWA 与锁屏控制
 - Task 17 安全回归：`test/e2e/security.spec.ts` 12 条 + 人工 curl 渗透验证
-- 测试：单元 + 集成 171 条，端到端 34 条，全绿；typecheck 干净
+- 测试：单元 + 集成 171 条，端到端 37 条（加入/同步/安全/聊天·重连·缓存），全绿；typecheck 干净
 
 ### 尚未完成
 
@@ -34,3 +34,6 @@
 - 本地跑 E2E 必须靠 `.dev.vars` 里的 `RATE_LIMIT_SCALE` 放宽限速，
   否则测试套件会被自己的限速挡住；集成测试那层显式锁回 1
 - E2E 用系统 Edge（`channel: 'msedge'`），因为下载 Playwright 自带浏览器会失败
+- 想在 E2E 里模拟 WebSocket 断线，`context.setOffline(true)` 与 `routeWebSocket` 都不行：
+  前者只挡新请求，已建好的连接照样活着；后者只拦新连接。
+  可行做法是 `addInitScript` 把 WebSocket 实例挂到 `window` 上，再从外面 `close()`

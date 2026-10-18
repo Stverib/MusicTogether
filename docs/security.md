@@ -286,7 +286,7 @@ API 响应统一在 Worker 最外层加（`withSecurity()`，一处生效）。
 已完成的（2026-10-18 本地验证）：
 
 - [x] 仓库里 grep 不到任何密钥（`git log -p --all | grep -i secret` 只剩变量名与测试夹具）
-- [x] 上述所有回归用例是绿的（集成 171 条 + 端到端 34 条）
+- [x] 上述所有回归用例是绿的（集成 171 条 + 端到端 37 条）
 - [x] 手工渗透验证（curl，见下方记录）
 - [x] 静态外壳与 API 都带上了全部安全响应头
 - [x] 生产环境 Cookie 带 `Secure`（`sessionCookie(..., secure)`，按 `url.protocol === 'https:'` 判定）
