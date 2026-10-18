@@ -31,8 +31,13 @@ export default defineConfig({
   ],
 
   webServer: {
-    // E2E 跑的是 wrangler 托管的构建产物，所以要先 build
-    command: `npm run build && npx wrangler dev --port ${PORT}`,
+    // E2E 跑的是 wrangler 托管的构建产物，所以要先 build。
+    // e2e:server 还会做两件事，都是为了"每轮从同一个已知状态开始"：
+    //   1. 用独立的 --persist-to 目录，不跟 `npm run dev:worker` 抢同一份本地状态
+    //      （否则跑测试会把开发中的房间和歌一起抹掉）
+    //   2. 每轮开跑前清空它 —— 状态跨轮累积过 75 MB，之后会出现
+    //      "上传静默不落地"这类完全看不出原因的失败
+    command: 'npm run e2e:server',
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

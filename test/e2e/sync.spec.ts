@@ -136,10 +136,16 @@ test('后进来的人立刻跟上当前播放位置，不用等同步帧', async
   await waitForPlaying(b);
   const elapsed = Date.now() - joinedAt;
 
+  // 两端要在**同一时刻**比。拿 aBefore 比是错的：那是进房之前的快照，
+  // 中间隔着整整一个进房耗时，diff 会等于 elapsed 而不是同步误差 ——
+  // 机器一慢就假红，跟同步精度没关系。
+  const sa = await audioState(a);
   const sb = await audioState(b);
+
   // 关键：B 的位置应当已经接近 A，而不是从 0 开始
   expect(sb.currentTime).toBeGreaterThan(2);
-  expect(Math.abs(sb.currentTime - aBefore.currentTime)).toBeLessThan(3);
+  expect(aBefore.currentTime).toBeGreaterThan(2);
+  expect(Math.abs(sb.currentTime - sa.currentTime)).toBeLessThan(3);
   // 而且不该是"干等到下一次周期性同步帧"才响的（同步帧间隔 30 秒）
   expect(elapsed).toBeLessThan(15_000);
 
