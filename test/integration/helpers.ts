@@ -68,6 +68,7 @@ export async function stateOf(code: string, cookie: string): Promise<any> {
   return res.json();
 }
 
+/** 发起升级但**不** accept —— 消息在 accept 之前不会投递 */
 export async function connectWs(
   code: string,
   cookie: string,
@@ -77,9 +78,24 @@ export async function connectWs(
     headers: headers(opts, { Upgrade: 'websocket', Cookie: cookie }),
   });
   if (res.status !== 101) throw new Error(`ws upgrade failed: ${res.status}`);
-  const ws = res.webSocket!;
+  return res.webSocket!;
+}
+
+/**
+ * 连上并开始接收。
+ *
+ * 顺序很关键：**先挂监听再 accept**。反过来的话，服务端在 accept 时立刻
+ * 发出的那帧 `state` 会在监听器就位之前到达，然后永远等不到。
+ */
+export async function openWs(
+  code: string,
+  cookie: string,
+  opts: FetchOpts = {},
+): Promise<{ ws: WebSocket; next: () => Promise<any> }> {
+  const ws = await connectWs(code, cookie, opts);
+  const next = reader(ws);
   ws.accept();
-  return ws;
+  return { ws, next };
 }
 
 /** 把一个 WebSocket 收到的消息按到达顺序排成队列 */
@@ -107,6 +123,30 @@ export async function nextOfType(next: () => Promise<any>, type: string, tries =
     if (m.type === type) return m;
   }
   throw new Error(`never saw a "${type}" frame`);
+}
+
+export type Connected = Member & { ws: WebSocket; next: () => Promise<any> };
+
+/** 加入房间并连上 WebSocket，返回可直接读消息的句柄 */
+export async function member(code: string, name: string, opts: FetchOpts = {}): Promise<Connected> {
+  const ip = opts.ip ?? nextIp();
+  const m = await joinRoom(code, name, { ...opts, ip });
+  if (m.status !== 200) throw new Error(`join failed: ${m.status}`);
+  const { ws, next } = await openWs(code, m.cookie, { ...opts, ip });
+  return { ...m, ws, next };
+}
+
+/** 建一个房间并让若干人连进来 */
+export async function roomWithMembers(names: string[]): Promise<{
+  code: string;
+  members: Connected[];
+}> {
+  const code = await newRoom();
+  const members: Connected[] = [];
+  for (const name of names) members.push(await member(code, name));
+  // 每个人握手时都会收到一帧 state，先消费掉，避免后面的断言读到它
+  for (const m of members) await nextOfType(m.next, 'state');
+  return { code, members };
 }
 
 export function fakeSong(bytes = 2048): Uint8Array {
