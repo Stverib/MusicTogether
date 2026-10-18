@@ -2,19 +2,24 @@
 
 和别人一起听同一首歌，进度条保持同步。纯网页 / PWA，跑在 Cloudflare 上。
 
-> 完整设计见 `docs/spec.md`，安全威胁模型见 `docs/security.md`，
-> 实现计划见 `docs/superpowers/plans/`。本文件只放稳定约定与红线。
+> 面向人的入口在 `README.md`。完整设计见 `docs/spec.md`，安全威胁模型见
+> `docs/security.md`，实现计划见 `docs/superpowers/plans/`。
+> 本文件只放稳定约定与红线。
 
 ---
 
 ## 常用命令
 
-    npm run dev            # 前端开发服务器（Vite，5173）
+    npm run dev            # 前端开发服务器（Vite，5173，/api 代理到 8787）
     npm run dev:worker     # 本地 Worker（wrangler，8787）
     npm test               # 单元 + 集成测试
-    npm run test:e2e       # Playwright
+    npm run test:e2e       # Playwright（跑构建产物，8788；用系统 Edge）
     npm run typecheck      # 前端与服务端两套 tsconfig 都检查
     npm run deploy         # 构建并部署
+
+新克隆的仓库跑不了 Worker：`.dev.vars` 被 gitignore 了，
+要照 `.dev.vars.example` 自己建一个（`SESSION_SECRET` 必须 32 字符以上，
+否则服务会拒绝启动）。
 
 首次部署前必须：
 
@@ -113,16 +118,6 @@ Durable Object，用 WebSocket Hibernation 维持长连接并广播服务端权�
 - 粒度：宁可多提交，不要攒成一个大提交。一个提交只做一件事
 - 提交前跑一次相关测试；带着红灯提交时，提交信息里要写明（例如 `wip:` 前缀）
 - 提交信息写"为什么"，不写"改了什么"——`git diff` 已经说明了改了什么
-
-常用前缀：
-
-    feat:     新功能
-    fix:      修 bug
-    test:     只动测试
-    docs:     只动文档
-    refactor: 不改行为的重构
-    chore:    构建、依赖、配置
-    wip:      已知红灯，临时落点
 
 ## 待办红线（实现中必须守住，容易忘）
 

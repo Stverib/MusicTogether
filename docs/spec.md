@@ -119,9 +119,13 @@
 
 ### 4.1 房间码
 
-- 字母表：`ABCDEFGHJKMNPQRSTVWXYZ23456789`（32 字符，剔除 `I L O U 0 1` 等易混字符）
+- Crockford Base32 字母表：`0123456789ABCDEFGHJKMNPQRSTVWXYZ`
+  （32 字符 = 10 个数字 + 去掉 `I L O U` 的 22 个字母。`0` 与 `1` **在**字母表里，
+  被剔掉的是和它们长得像的 `O` 与 `I`/`L`）
 - 长度 6 → 32⁶ ≈ 10.7 亿种组合
-- 输入时大小写不敏感，自动转大写
+- 输入边打边归一化（`normalizeCode()`）：转大写 → 丢掉非字母数字 →
+  `O`→`0`、`I`/`L`→`1`、`U`→`V`。所以 `k-7-m-2-q-x` 会变成 `K7M2QX`，
+  大小写与分隔符都不影响，粘贴也不该被截断
 
 ### 4.2 鉴权
 
@@ -224,14 +228,18 @@ currentPosition(now) = isPlaying ? positionMs + (now - anchorAt) : positionMs
 
 | type | 载荷 | 说明 |
 |------|------|------|
-| `state` | `RoomState` | 连接/重连后的完整快照 |
-| `playback` | `Playback & {serverNow}` | 锚点变化 |
-| `sync` | `Playback & {serverNow}` | 30 秒兜底同步帧（同结构，语义不同） |
+| `state` | `{room, serverNow}` | 连接/重连后的完整快照 |
+| `playback` | `{playback, serverNow}` | 锚点变化 |
+| `sync` | `{playback, serverNow}` | 30 秒兜底同步帧（同结构，语义不同） |
 | `queue` | `{queue, epoch}` | 队列变化 |
 | `tracks` | `{tracks, epoch}` | 曲目表变化 |
 | `members` | `{members}` | 成员变化 |
 | `chat` | `{from, name, text, at}` | 聊天消息（**不持久化**） |
 | `error` | `{message}` | |
+
+**每一帧带播放状态的都**必须**带 `serverNow`**：客户端要拿它把锚点换算成
+"现在应该播到哪儿"。`state` 快照漏掉它会很难查 —— 中途进房的人位置是对的，
+但要干等到下一次兜底同步帧（最多 30 秒）才出声。
 
 **聊天不落库**：只广播给当前在线成员，重连后看不到历史。
 
@@ -247,7 +255,8 @@ Cloudflare 会在一段**未公开的**空闲时长后掐断 WebSocket，且网�
 
 **30 秒兜底同步帧只在播放中才调度**：用 `state.storage.setAlarm()` 定时，暂停时取消。暂停状态下没有任何周期性消息。
 
-粗算：两个人在线听 4 小时，心跳 2×144×... ≈ 1,200 条，加状态变化与兜底帧，一天远在 100,000 以内。
+粗算：两个人在线听 4 小时，心跳 2 × (14400 / 25) = 1,152 条，加状态变化与兜底帧，
+一天远在 100,000 以内。
 
 ---
 
@@ -255,6 +264,7 @@ Cloudflare 会在一段**未公开的**空闲时长后掐断 WebSocket，且网�
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| `GET` | `/api/health` | 健康检查，返回 `{ok, at}`。`SESSION_SECRET` 没配好时 `ok: false` + 503 —— 宁可整个服务报不健康，也不要带着一个坏密钥跑 |
 | `POST` | `/api/rooms` | 创建房间，返回 `{code}` |
 | `POST` | `/api/rooms/:code/join` | 加入，返回 `{clientId, room}` 并种 Cookie |
 | `GET` | `/api/rooms/:code/state` | 拉取快照（WS 之外的兜底） |
@@ -288,9 +298,12 @@ Cloudflare 会在一段**未公开的**空闲时长后掐断 WebSocket，且网�
 
 | 环境 | 手段 |
 |------|------|
-| 桌面 Chrome/Edge | `showDirectoryPicker()`，目录句柄存 IndexedDB，下次一键重扫 |
+| 桌面 Chrome/Edge | `showDirectoryPicker()` |
 | 手机 / 其他 | `<input type="file" webkitdirectory multiple>` |
 | 兜底 | `<input type="file" accept="audio/*" multiple>` |
+
+**与规格的差异**：原计划把目录句柄存进 IndexedDB 以便"下次一键重扫"，没有实现 ——
+现在每次都要重新选目录。功能完整，只是多一步。
 
 ### 8.2 缓存策略
 

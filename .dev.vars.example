@@ -1,0 +1,11 @@
+# 本地开发用的变量。复制成 .dev.vars 后即可 `npm run dev:worker`。
+# .dev.vars 已在 .gitignore 里 —— 真实密钥绝不进仓库。
+
+# 会话令牌的 HMAC 密钥，必须 32 字符以上，否则服务会拒绝启动。
+# 这只是本地开发值，生产用 `wrangler secret put SESSION_SECRET`。
+SESSION_SECRET=local-dev-only-secret-at-least-32-chars-long
+
+# 仅供本地开发与 E2E：放宽限速倍率（默认 1，上限 1000）。
+# 本地所有请求都来自 127.0.0.1 这一个 IP，严格的生产限额会让测试套件
+# 把自己挡住。生产环境不要设这个变量。见 docs/security.md §2.4。
+RATE_LIMIT_SCALE=50
