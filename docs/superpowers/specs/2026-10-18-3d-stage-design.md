@@ -213,32 +213,35 @@ export function isThemeId(v: unknown): v is ThemeId {
 
 ### 5.3 服务端 `src/server/room.ts`
 
-照 `/track-ready` 的样子加一条 `/theme` 路由：
+**走 WebSocket，不新增 HTTP 路由。** 客户端到服务端的一切都是 `webSocketMessage`
+里那个 switch 的分支（`chat`、`enqueue` 都是这么处理的），主题照做：
 
 ```ts
-private async setTheme(request: Request): Promise<Response> {
-  const body = await request.json().catch(() => null);
-  const theme = (body as { theme?: unknown } | null)?.theme;
-  if (!isThemeId(theme)) return fail(400, 'bad theme');
-
-  const room = await this.load();
-  if (room.theme === theme) return Response.json({ ok: true }); // 幂等，不广播
-
-  room.theme = theme;
+case 'theme': {
+  if (!isThemeId(msg.theme)) break;      // 边界处一律校验（红线 4）
+  if (room.theme === msg.theme) break;   // 幂等：不发无谓的广播
+  room.theme = msg.theme;
   await this.save();
-  this.broadcast({ type: 'theme', theme });
-  return Response.json({ ok: true });
+  this.broadcast({ type: 'theme', theme: room.theme });
+  break;
 }
 ```
+
+不新增端点还带来一个好处：**没有新增鉴权面**。这条消息走的是既有的、
+已经过 `session.room === 路径房间码` 校验的连接（§10）。
 
 ### 5.4 老房间的迁移（容易漏，且本地大概率撞不到）
 
 主题是新增字段，**已经存在的房间状态里没有它**。
-`load()` 里必须兜底：
+房间状态是在**构造函数**里 load 的（`ctx.storage.get<RoomState>('room')`），
+所以兜底要加在那里，而不是某个 `load()` 方法里：
 
 ```ts
-theme: isThemeId(stored.theme) ? stored.theme : DEFAULT_THEME,
+const stored = await this.ctx.storage.get<RoomState>(STORAGE_KEY);
+this.room = stored ? { ...stored, theme: themeOrDefault(stored.theme) } : null;
 ```
+
+同时 `init()` 建新房间时要带上 `theme: DEFAULT_THEME`。
 
 不兜底的话老房间拿到 `undefined`，客户端查表查不到，场景直接不出来 ——
 而这个 bug 只在"升级前建过房间"的设备上复现。
