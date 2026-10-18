@@ -45,6 +45,43 @@
   与 `npm run dev:worker` 的 `.wrangler/state` 隔离。之前两者共用一份，
   累积到 75 MB 之后开始出现"上传静默不落地"这种毫无线索的失败
 
+### 部署受阻：中国大陆网络下的实测结论（2026-10-18）
+
+为了判断"无法完成付费流程怎么办"，做了一轮实测（探针 Worker 已删除）：
+
+| 目标 | 结果 |
+|------|------|
+| `wrangler deploy`（探针 Worker） | ✅ **成功，不需要绑卡** |
+| `wrangler r2 bucket create` | ❌ code 10042，R2 必须先过仪表盘的付费流程 |
+| `*.workers.dev` | ❌ DNS 被污染成 Facebook 的 IP（`2a03:2880:f10f:83:face:b00c:0:25de` / `69.63.187.12`），连接 20s 超时 |
+| `*.vercel.app` | ❌ 同样污染成 Facebook IP，连接 15s 超时 |
+| `cloudflare.com` | ✅ 200，0.5s |
+| `vercel.com` | ✅ 200，0.8s |
+
+**结论一：免费平台子域这条路整体是死的。** `workers.dev` / `vercel.app`
+被针对性封锁（不是平台被墙——平台主站都通，被墙的是**共享的免费子域**，
+`pages.dev`、`netlify.app`、`onrender.com` 属同一类，机制相同）。
+换任何一家免费 PaaS 都绕不过去，**必须有自己的域名**。
+
+**结论二：域名不再是可选项。** 而且这一条对部署在哪儿都一样成立：
+自建 VPS 要 HTTPS 才有安全上下文（PWA / Service Worker / 剪贴板），
+Let's Encrypt 也签不了纯 IP。
+
+**结论三：卡住的一直是两件事，不是一件** —— R2 要国际卡，
+免费子域在大陆不可达。只解决其中一个都不够。
+
+待定的三条路（都需要先买域名，¥30–80/年，支持常见支付方式）：
+
+1. **香港轻量服务器**（腾讯云/阿里云，约 ¥25–40/月，香港区免备案）——
+   音频放本地磁盘，Node + `ws` 一个进程全包。体验最好（大陆到香港 30–60ms），
+   但 `src/server/` 要从 Worker/DO 改写成 Node 进程（客户端与 `src/shared/` 不动）
+2. **Cloudflare Workers + 自有域名 + 用 KV 顶替 R2**（约 ¥40/年，零月费）——
+   KV 免费 1 GB / 10 万次读/日，单值上限 25 MiB。
+   代价：KV 不支持 Range，`/stream` 要读整个值再切片（25 MB 上限、CPU 更吃紧），
+   且从大陆访问 Cloudflare 边缘通常 200–400ms
+3. **虚拟信用卡**（如 WildCard，约 ¥100/年）→ 维持现有 R2 架构，零代码改动。
+   风险是 Cloudflare 的付费流程可能不收虚拟卡
+
 ### 尚未完成
 
 - **PWA 安装与锁屏媒体控制没有验过**：局域网 HTTP 不是安全上下文，
@@ -52,10 +89,9 @@
   `cloudflared tunnel` 临时把本地 dev server 暴露成 HTTPS）
 - 安卓端没有单独跑过能力验证页（用户其他成员的设备）。
   安卓 Chrome 在这三件事上比 ArkWeb 宽松，风险低，但没验过就是没验过
-- 部署：`wrangler r2 bucket create musictogether-tracks` →
-  `wrangler secret put SESSION_SECRET` → `npm run deploy`。
-  部署后就不需要本地起任何东西了，任何设备任何网络都能用
-  （不再是"同一个 WiFi"的限制）
+- 部署：见上面「部署受阻」一节。原有的三步流程
+  （`wrangler r2 bucket create` → `wrangler secret put SESSION_SECRET` → `npm run deploy`）
+  本身没错，但**必须先解决域名与 R2 这两件事**，否则部署出来大陆打不开
 - 部署后要补的三条上线检查（本地无法验证）：生产密钥、R2 桶不公开、HSTS
 - `cloudflare:test` 的 `env`/`SELF` 已废弃，应迁移到 `cloudflare:workers`
   的 `env` 与 `exports.default.fetch()`
