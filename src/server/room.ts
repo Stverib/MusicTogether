@@ -323,7 +323,9 @@ export class RoomDO implements DurableObject {
       }
 
       case 'chat': {
-        const text = String(msg.text ?? '').trim();
+        // 必须是字符串，不做隐式强转 —— String(123) 会把数字悄悄变成文本收下
+        if (typeof msg.text !== 'string') break;
+        const text = msg.text.trim();
         if (!text || text.length > CHAT_MAX_LENGTH) break;
         const member = room.members.find((m) => m.clientId === tag);
         // 原样广播，不做 HTML 转义 —— 转义是输出端（前端）的责任

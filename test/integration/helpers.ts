@@ -125,6 +125,25 @@ export async function nextOfType(next: () => Promise<any>, type: string, tries =
   throw new Error(`never saw a "${type}" frame`);
 }
 
+/**
+ * 一直读到队列内容**恰好等于** expected 的那一帧。
+ *
+ * 不能直接用 nextOfType(next, 'queue')：每次上传本身也会广播 queue，
+ * 那些陈旧的帧会先到，断言就会读到上一个状态。
+ */
+export async function waitForQueue(
+  next: () => Promise<any>,
+  expected: string[],
+  tries = 30,
+): Promise<any> {
+  const want = JSON.stringify(expected);
+  for (let i = 0; i < tries; i++) {
+    const m = await next();
+    if (m.type === 'queue' && JSON.stringify(m.queue) === want) return m;
+  }
+  throw new Error(`never saw queue ${want}`);
+}
+
 export type Connected = Member & { ws: WebSocket; next: () => Promise<any> };
 
 /** 加入房间并连上 WebSocket，返回可直接读消息的句柄 */
