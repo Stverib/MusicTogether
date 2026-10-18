@@ -28,8 +28,11 @@ export function Join({ initialCode = '' }: { initialCode?: string }) {
         void run(() => store.join(code, name.trim() || '匿名'));
       }}
     >
-      <h1>MusicTogether</h1>
-      <p class="muted">和另一个人听同一首歌，进度条保持同步。</p>
+      <div class="brand">
+        <div class="disc" aria-hidden="true" />
+        <h1>MusicTogether</h1>
+        <p class="tagline">和另一个人听同一首歌，进度条保持同步。</p>
+      </div>
 
       <label>
         你的昵称
@@ -44,6 +47,7 @@ export function Join({ initialCode = '' }: { initialCode?: string }) {
       <label>
         房间码
         <input
+          class="code-input"
           value={code}
           // 边输入边归一化：粘贴 "k-7-m-2-q-x" 会直接显示成 K7M2QX。
           // 这里**不能**加 maxLength —— 它按原始字符数截断，
@@ -74,7 +78,7 @@ export function Join({ initialCode = '' }: { initialCode?: string }) {
         </button>
       </div>
 
-      <p class="muted small">身份存在这台设备的浏览器里（{getOrCreateClientId().slice(0, 8)}…）。</p>
+      <p class="footnote small">身份存在这台设备的浏览器里（{getOrCreateClientId().slice(0, 8)}…）。</p>
     </form>
   );
 }

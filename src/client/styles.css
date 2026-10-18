@@ -1,14 +1,118 @@
+/* ============================================================
+   MusicTogether — 「暖纸与亮橙」
+
+   整页是一张暖白的纸，播放器是纸上最亮、最饱和的那块橙。
+   没有黑：连"深"色也是暖褐，不用纯黑，避免和暖色调打架。
+
+   字体说明：CSP 是 default-src 'self'，外部字体一律加载不了；
+   而中文字体动辄 5–15 MB，也不适合塞进仓库。所以这里用系统字体栈，
+   把"个性"交给等宽数字（时间、房间码、序号）与字重/字距的对比 ——
+   顺带一个实际好处：tabular-nums 让秒数跳动时不会左右抖。
+   ============================================================ */
+
 :root {
-  --bg: #141118;
-  --panel: #1e1a24;
-  --panel-2: #272130;
-  --line: #38303f;
-  --text: #ece7f2;
-  --muted: #9c93a8;
-  --accent: #b98cff;
-  --accent-ink: #1a1226;
-  --danger: #ff8a8a;
-  color-scheme: dark;
+  /* 纸 */
+  --bg: #fff8f2;
+  --surface: #fffdfa;
+  --surface-2: #fdf1e6;
+  --surface-3: #f8e6d5;
+
+  /* 墨：暖褐，不用纯黑 */
+  --ink: #3a2a1e;
+  --ink-2: #7a6252;
+  --ink-3: #a8907c;
+
+  --line: #f0e0d0;
+  --line-2: #e6d2bd;
+
+  /* 橙的整条色阶。主色在 500 —— 亮而不刺，500 以上的深色只用于
+     需要对比的小面积（图标、描边），不用于大面积填充 */
+  --ember-100: #ffe9d8;
+  --ember-200: #ffd3b4;
+  --ember-300: #ffb588;
+  --ember-400: #fb9560;
+  --ember-500: #f27b3c;
+  --ember-600: #de6428;
+  --ember-700: #b84e18;
+
+  --ember: var(--ember-500);
+  --ember-hi: #ffa45c;
+  --ember-soft: var(--ember-100);
+  /* 橙底上的字用深暖褐。对 300–500 整段橙是 9.3:1 ~ 5.3:1，AA 有余 */
+  --ember-ink: #3a2412;
+  --glow: rgba(242, 123, 60, 0.16);
+
+  /* 播放器那张橙卡片。刻意不用深色 —— 它靠"最亮最饱和"当主角，
+     不靠"最暗" */
+  --card-grad:
+    radial-gradient(130% 115% at 10% -12%, rgba(255, 255, 255, 0.55), transparent 58%),
+    linear-gradient(155deg, var(--ember-200) 0%, var(--ember-300) 46%, var(--ember-400) 100%);
+  --card-ink: #4a2a14;
+  --card-ink-2: #5a3618;
+  --card-line: rgba(255, 255, 255, 0.6);
+  /* 按钮用半透明白（在橙卡上显得轻），进度条的槽要用暖褐 ——
+     纯半透明白在浅橙上几乎看不见，白色填充就分不出"走到哪儿了" */
+  --card-fill: rgba(255, 255, 255, 0.5);
+  --card-track: rgba(120, 55, 15, 0.22);
+  --card-shadow: 0 2px 6px rgba(150, 70, 20, 0.14), 0 18px 40px -18px rgba(200, 90, 30, 0.55);
+
+  /* 状态 */
+  --ok: #4f9d5d;
+  --warn: #e0a02e;
+  --danger: #c4553f;
+
+  --shadow-sm: 0 1px 2px rgba(120, 80, 50, 0.05);
+  --shadow: 0 2px 4px rgba(120, 80, 50, 0.04), 0 10px 24px -14px rgba(120, 80, 50, 0.25);
+
+  --r-sm: 10px;
+  --r: 16px;
+  --r-lg: 22px;
+  --r-pill: 999px;
+
+  --font-sans: 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans', 'Noto Sans SC',
+    'Source Han Sans SC', 'Microsoft YaHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', 'Roboto Mono',
+    Menlo, Consolas, monospace;
+
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.05'/%3E%3C/svg%3E");
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1310;
+    --surface: #241b15;
+    --surface-2: #2e231a;
+    --surface-3: #3a2c20;
+
+    --ink: #f6ece1;
+    --ink-2: #c0aa96;
+    --ink-3: #947c67;
+
+    --line: #3a2c20;
+    --line-2: #4a3828;
+
+    --ember-soft: #3a2418;
+    --glow: rgba(242, 123, 60, 0.2);
+
+    /* 深色下把橙卡稍微压一点，免得在暗底上刺眼 —— 但它仍然是全场最亮的 */
+    --card-grad:
+      radial-gradient(130% 115% at 10% -12%, rgba(255, 255, 255, 0.4), transparent 58%),
+      linear-gradient(155deg, #f7c29a 0%, #f8a873 46%, #ef8c4e 100%);
+    --card-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 18px 40px -18px rgba(240, 130, 60, 0.4);
+
+    --ok: #5cb06c;
+    --warn: #e8ae44;
+    --danger: #d9705a;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow: 0 2px 4px rgba(0, 0, 0, 0.3), 0 10px 24px -14px rgba(0, 0, 0, 0.7);
+
+    --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.045'/%3E%3C/svg%3E");
+
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -17,25 +121,55 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  min-height: 100dvh;
+  background-color: var(--bg);
+  /* 纸的颗粒。SVG 噪声走 data: URI，CSP 的 img-src 允许 data: */
+  background-image: var(--noise);
+  background-repeat: repeat;
+  color: var(--ink);
+  font: 16px/1.6 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   padding: 0 0 env(safe-area-inset-bottom);
 }
 
-h1 {
-  font-size: 22px;
-  margin: 0 0 4px;
+/* 顶部那层暖光，固定在视口上，不随内容滚走 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(115% 55% at 50% -12%, var(--glow) 0%, transparent 62%);
 }
+
+::selection {
+  background: var(--ember-200);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ember-600);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+h1,
 h2 {
-  font-size: 15px;
+  margin: 0;
+  font-weight: 600;
+}
+
+/* 小节标题：小号、宽字距、弱色 —— 安静地做标签，不抢内容 */
+h2 {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
   margin: 0 0 10px;
   font-weight: 600;
-  color: var(--muted);
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .small {
   font-size: 13px;
@@ -43,6 +177,7 @@ h2 {
 .error {
   color: var(--danger);
   font-size: 14px;
+  margin: 0;
 }
 .grow {
   flex: 1;
@@ -58,155 +193,497 @@ h2 {
   justify-content: space-between;
 }
 
+/* 所有数字都用等宽字形：秒数跳动时不会左右抖 */
+.tabular,
+.idx,
+.times,
+.list .idx {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 按钮 ---------- */
+
 button {
   font: inherit;
-  padding: 9px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  color: var(--text);
+  padding: 9px 15px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink);
   cursor: pointer;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.12s ease,
+    color 0.16s ease;
 }
 button:hover:not(:disabled) {
-  border-color: var(--accent);
+  border-color: var(--ember-400);
+  color: var(--ember-700);
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
 }
+
 button.primary {
-  background: var(--accent);
-  color: var(--accent-ink);
-  border-color: var(--accent);
+  background: linear-gradient(180deg, var(--ember-hi), var(--ember));
+  color: var(--ember-ink);
+  border-color: transparent;
   font-weight: 600;
+  box-shadow: 0 1px 2px rgba(150, 70, 20, 0.2), 0 10px 22px -12px rgba(242, 123, 60, 0.95);
 }
+button.primary:hover:not(:disabled) {
+  color: var(--ember-ink);
+  filter: brightness(1.05);
+}
+
 button.icon {
-  padding: 4px 8px;
+  padding: 5px 9px;
   background: transparent;
   border-color: transparent;
-  color: var(--muted);
+  color: var(--ink-3);
 }
+button.icon:hover:not(:disabled) {
+  color: var(--ember-700);
+  background: var(--ember-soft);
+}
+
 button.link {
   background: none;
   border: none;
   padding: 0;
   color: inherit;
   text-align: left;
+  border-radius: 8px;
+}
+button.link:hover:not(:disabled) {
+  color: var(--ember-700);
 }
 
-input[type='text'],
-input:not([type]) {
-  font: inherit;
-}
+/* ---------- 输入 ---------- */
 
-input {
+input:not([type='range']):not([type='file']) {
   font: inherit;
-  padding: 9px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--text);
+  padding: 11px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink);
   width: 100%;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
+input:not([type='range']):not([type='file']):focus {
+  outline: none;
+  border-color: var(--ember-400);
+  box-shadow: 0 0 0 3px var(--ember-soft);
+}
+input::placeholder {
+  color: var(--ink-3);
 }
 
-/* ---------- 加入页 ---------- */
+/* ============================================================
+   加入页
+   ============================================================ */
 
 .join {
-  max-width: 380px;
-  margin: 12vh auto 0;
-  padding: 0 20px;
+  position: relative;
+  max-width: 400px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  /* 垂直居中；底部多留一点，视觉重心略高于正中 */
+  justify-content: center;
+  padding: 40px 22px calc(72px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
 }
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+
+/* 唱片：一圈圈同心纹 + 中心孔，慢慢转 */
+.disc {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  position: relative;
+  background:
+    /* 纹路要够密够清楚，否则看起来只是个橙色圆饼 */
+    repeating-radial-gradient(
+      circle at 50% 50%,
+      rgba(120, 55, 15, 0.16) 0 0.5px,
+      rgba(255, 255, 255, 0.16) 0.5px 1px,
+      transparent 1px 3.5px
+    ),
+    /* 斜着扫过的一道高光，让它像有厚度的黑胶 */
+    conic-gradient(
+      from 205deg,
+      rgba(255, 255, 255, 0.2) 0deg,
+      transparent 55deg,
+      transparent 175deg,
+      rgba(255, 255, 255, 0.16) 215deg,
+      transparent 275deg
+    ),
+    radial-gradient(circle at 38% 30%, var(--ember-300), var(--ember-500) 52%, var(--ember-700));
+  box-shadow:
+    0 10px 26px -12px rgba(242, 123, 60, 0.85),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  animation: spin 14s linear infinite;
+}
+.disc::after {
+  content: '';
+  position: absolute;
+  inset: 33%;
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow:
+    inset 0 1px 3px rgba(120, 55, 15, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.join h1 {
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.join .tagline {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
 .join label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 14px;
-  color: var(--muted);
+  gap: 7px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
 }
 
-/* ---------- 房间 ---------- */
+/* 房间码当票根：等宽、宽字距、居中 */
+.join .code-input {
+  font-family: var(--font-mono);
+  font-size: 19px;
+  letter-spacing: 0.34em;
+  text-align: center;
+  text-transform: uppercase;
+  padding: 13px 14px;
+}
+
+.join .row {
+  gap: 10px;
+  margin-top: 4px;
+}
+.join .row button {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.join .footnote {
+  margin: 2px 0 0;
+  text-align: center;
+  color: var(--ink-3);
+}
+
+/* ============================================================
+   房间外壳
+   ============================================================ */
 
 .room {
-  max-width: 640px;
+  position: relative;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 14px 16px 40px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  padding: 16px 18px 56px;
 }
 
 .room > header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0;
+  gap: 10px;
+  padding: 4px 2px 18px;
+  font-size: 14px;
+}
+
+/* 房间码 —— 这一页唯一的"票据"，用等宽宽字距 */
+.room > header strong {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  font-weight: 500;
+  color: var(--ink-3);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+.room > header strong .code {
+  font-family: var(--font-mono);
   font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  /* 字距会在最后一个字符后面也留一份，右边内边距相应减掉才视觉居中 */
+  padding: 3px 8px 3px 11px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
 }
 
 .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--ink-3);
+  transition: background 0.3s ease;
 }
 .dot.open {
-  background: #6ee7a8;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent);
 }
 .dot.connecting {
-  background: #ffd479;
+  background: var(--warn);
+  animation: breathe 1.4s ease-in-out infinite;
 }
 .dot.closed {
   background: var(--danger);
 }
 
 .banner {
-  background: var(--panel-2);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--surface-2);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
   font-size: 14px;
-  color: var(--muted);
+  color: var(--ink-2);
+  margin-bottom: 14px;
+}
+.banner::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: breathe 1.4s ease-in-out infinite;
 }
 
-.panel,
-.player {
-  background: var(--panel);
+/* 窄屏单列，宽屏两列 */
+.layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 920px) {
+  .layout {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ============================================================
+   面板
+   ============================================================ */
+
+.panel {
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 14px;
+  border-radius: var(--r);
+  padding: 16px 16px 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ============================================================
+   播放器 —— 纸上最亮的那块橙
+   ============================================================ */
+
+.player {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  padding: 20px 20px 16px;
+  background: var(--card-grad);
+  color: var(--card-ink);
+  box-shadow: var(--card-shadow);
+}
+
+.player .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--card-ink-2);
+  margin-bottom: 10px;
+}
+.player .eyebrow .pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 8px 1px rgba(255, 255, 255, 0.95);
 }
 
 .player .title {
-  font-size: 17px;
+  font-size: clamp(19px, 5vw, 25px);
   font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   word-break: break-word;
 }
+.player .by {
+  margin-top: 5px;
+  font-size: 13px;
+  color: var(--card-ink-2);
+}
 
+/* 进度条 = 一道白光。填充比例由组件内联的 --p 给出 */
 .seek {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
   width: 100%;
-  margin: 12px 0 4px;
-  accent-color: var(--accent);
+  height: 30px;
+  margin: 14px 0 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  --p: 0%;
+}
+.seek::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background-color: var(--card-track);
+  background-image: linear-gradient(90deg, #fff, #fff);
+  background-size: var(--p) 100%;
+  background-repeat: no-repeat;
+}
+.seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: #fff;
+  border: none;
+  box-shadow:
+    0 0 0 3px rgba(184, 78, 24, 0.22),
+    0 2px 8px rgba(140, 60, 15, 0.5);
+  transition: box-shadow 0.16s ease;
+}
+.seek:hover::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 5px rgba(184, 78, 24, 0.26),
+    0 2px 10px rgba(140, 60, 15, 0.55);
+}
+.seek::-moz-range-track {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--card-track);
+}
+.seek::-moz-range-progress {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: #fff;
+}
+.seek::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(184, 78, 24, 0.22);
+}
+.seek:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+}
+
+.times {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--card-ink-2);
 }
 
 .controls {
   justify-content: center;
-  gap: 14px;
-  margin-top: 6px;
+  gap: 16px;
+  margin-top: 14px;
+  flex-wrap: nowrap;
 }
 .controls button {
-  min-width: 52px;
-  font-size: 18px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  border-radius: 50%;
+  background: var(--card-fill);
+  border: 1px solid var(--card-line);
+  color: var(--card-ink);
 }
+.controls button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ember-700);
+}
+/* 播放键是白底 + 深橙图标：在橙卡片上最亮，也最清楚 */
 .controls .primary {
-  min-width: 68px;
+  width: 62px;
+  height: 62px;
+  font-size: 21px;
+  background: #fff;
+  border-color: transparent;
+  color: var(--ember-700);
+  box-shadow: 0 6px 20px -8px rgba(140, 60, 15, 0.75);
 }
+.controls .primary:hover:not(:disabled) {
+  background: #fff;
+  color: var(--ember-600);
+  filter: none;
+}
+
+/* 空状态：不是橙卡片，是一张安静地等着的纸 */
+.player.empty {
+  background: var(--surface);
+  border: 1px dashed var(--line-2);
+  box-shadow: none;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 34px 20px;
+  text-align: center;
+}
+.player.empty .muted {
+  color: var(--ink-2);
+}
+
+/* ============================================================
+   列表 / 队列
+   ============================================================ */
 
 .list {
   list-style: none;
@@ -214,70 +691,220 @@ input:focus {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 .list li {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 4px;
-  border-radius: 8px;
+  gap: 10px;
+  padding: 8px 8px;
+  border-radius: var(--r-sm);
+  transition: background 0.16s ease;
+}
+.list li:hover {
+  background: var(--surface-2);
 }
 .list li.current {
-  background: var(--panel-2);
+  background: var(--ember-soft);
 }
 .list .name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.list .idx {
-  color: var(--muted);
-  margin-right: 8px;
-  font-variant-numeric: tabular-nums;
+/* 队列行里的"播放这首"按钮本身要是 flex，序号/电平条与文件名才能对齐、
+   文件名才吃得到省略号 */
+.list li button.link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
 }
+.list .idx {
+  flex: none;
+  width: 22px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: right;
+}
+
+/* 正在播的那一行：序号换成跳动的电平条 */
+.bars {
+  flex: none;
+  width: 22px;
+  height: 14px;
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+}
+.bars i {
+  width: 3px;
+  height: 30%;
+  border-radius: 2px;
+  background: var(--ember-600);
+}
+.bars.on i {
+  animation: level 0.9s ease-in-out infinite;
+}
+.bars.on i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.bars.on i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+.bars.on i:nth-child(4) {
+  animation-delay: 0.5s;
+}
+
 .picklist {
   max-height: 200px;
   overflow-y: auto;
-  margin: 8px 0;
+  margin: 10px 0;
 }
 .picklist .name {
-  font-size: 14px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
 }
 
-/* ---------- 聊天 ---------- */
+/* ============================================================
+   聊天
+   ============================================================ */
 
 .chat .messages {
   list-style: none;
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   padding: 0;
-  max-height: 240px;
+  max-height: 260px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 9px;
 }
 .chat .messages li {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 3px;
 }
 .chat .messages li.mine {
   align-items: flex-end;
 }
 .chat .who {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  padding: 0 4px;
 }
 .chat .what {
-  background: var(--panel-2);
-  border-radius: 10px;
-  padding: 6px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 4px 14px 14px 14px;
+  padding: 8px 12px;
   max-width: 85%;
+  font-size: 14.5px;
   word-break: break-word;
 }
+/* 自己的气泡：亮橙，不是深橙。深色只留给小面积的图标与描边 */
 .chat .mine .what {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: linear-gradient(180deg, var(--ember-300), var(--ember-400));
+  border-color: transparent;
+  color: var(--ember-ink);
+  border-radius: 14px 4px 14px 14px;
+}
+
+/* ============================================================
+   缓存
+   ============================================================ */
+
+.cache h2 {
+  margin-bottom: 8px;
+}
+.cache h2 button {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+  font-weight: 600;
+  padding: 2px 0;
+}
+.cache h2 button:hover {
+  color: var(--ember-700);
+}
+
+/* ============================================================
+   动效
+   ============================================================ */
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* 电平条：高度来回，四条错开 */
+@keyframes level {
+  0%,
+  100% {
+    height: 25%;
+  }
+  50% {
+    height: 100%;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 一次编排好的入场，而不是满屏零散的小动画 */
+.player,
+.panel {
+  animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
+}
+.col > *:nth-child(2) {
+  animation-delay: 0.07s;
+}
+.col > *:nth-child(3) {
+  animation-delay: 0.14s;
+}
+.join > * {
+  animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
+}
+.join > *:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.join > *:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.join > *:nth-child(4) {
+  animation-delay: 0.18s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

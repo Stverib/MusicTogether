@@ -29,7 +29,11 @@ export function App() {
   return (
     <main class="room">
       <header>
-        <strong>房间 {room.code}</strong>
+        {/* 房间码单独包一层好上等宽字体。textContent 仍是「房间 XXXX」，
+            测试与复制行为都不变 */}
+        <strong>
+          房间 <span class="code">{room.code}</span>
+        </strong>
         <span class={`dot ${status}`} title={status} />
         <span class="grow" />
         <button class="icon" title="离开房间" onClick={() => store.leave()}>
@@ -43,12 +47,19 @@ export function App() {
         </div>
       )}
 
-      <Player />
-      <Library />
-      <Queue />
-      <Members />
-      <Chat />
-      <CachePanel />
+      {/* 宽屏两列：左边是"在听什么"，右边是"和谁、在聊什么" */}
+      <div class="layout">
+        <div class="col">
+          <Player />
+          <Library />
+          <Queue />
+        </div>
+        <div class="col">
+          <Members />
+          <Chat />
+          <CachePanel />
+        </div>
+      </div>
     </main>
   );
 }
