@@ -85,3 +85,13 @@ test('播放时场景的能量观测点动起来，暂停后归零', async ({ pa
   // RAF 在跑、能量算出来了、观测点写进去了。不是"用的是 Web Audio"
   await expect.poll(() => energy.getAttribute('data-energy'), { timeout: 15_000 }).not.toBe('0.00');
 });
+
+test('画布上挂着画质档位与实测帧时间', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  const canvas = page.locator('canvas.stage-canvas');
+
+  // 档位在挂载时就定了，来自 localStorage 或设备推断
+  await expect(canvas).toHaveAttribute('data-quality', /^(high|medium|low)$/);
+  // 帧时间是 2 秒一个滚动窗口，窗口一到才挂出来
+  await expect(canvas).toHaveAttribute('data-frame-ms', /\d/, { timeout: 10_000 });
+});

@@ -3,7 +3,14 @@ import { player } from '../player';
 import { store } from '../store';
 import { createEnergySource, type EnergySource } from './analyser';
 import { SILENT, proceduralEnergy, type Energy } from './energy';
-import { loadTier, TIERS, type QualityTier } from './quality';
+import {
+  degrade,
+  loadTier,
+  saveTier,
+  shouldDegrade,
+  TIERS,
+  type QualityTier,
+} from './quality';
 import type { ThemeId } from '../../shared/themes';
 import type { Theme } from './themes/types';
 
@@ -141,9 +148,37 @@ class Stage {
     };
     addEventListener('pointerdown', armAnalyser, { once: true });
 
+    // 只看实测帧时间。2 秒滚动窗口，超了就降一档并记住。
+    //
+    // 只降不升：升档会在临界点上反复横跳，那种抖动比一直低画质更难忍。
+    // 档位存在 localStorage，不上行、不进房间状态 —— 画质是设备的事。
+    let tier = quality;
+    let frames = 0;
+    let frameMsSum = 0;
+    let windowStart = performance.now();
+
+    const watchQuality = (now: number, dt: number) => {
+      frames++;
+      frameMsSum += dt;
+      if (now - windowStart < 2000) return;
+      const avg = frameMsSum / Math.max(1, frames);
+      frames = 0;
+      frameMsSum = 0;
+      windowStart = now;
+      // 观测点：手机上没法看控制台，把实测帧时间挂出来
+      canvas.dataset.frameMs = avg.toFixed(1);
+      if (shouldDegrade(avg) && tier !== 'low') {
+        tier = degrade(tier);
+        saveTier(tier);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, TIERS[tier].maxPixelRatio));
+        canvas.dataset.quality = tier;
+      }
+    };
+
     const tick = (now: number) => {
       const dt = Math.min(64, now - last);
       last = now;
+      watchQuality(now, dt);
 
       const playing = store.room.value?.playback.isPlaying ?? false;
       elapsedMs = playing ? elapsedMs + dt : 0;
