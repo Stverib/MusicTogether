@@ -116,9 +116,20 @@ class Stage {
     let last = performance.now();
     let lastDebug = 0;
 
+    // 唱片机是房间的恒定中心 —— 它不属于任何主题，切主题时它一直在转
+    const { createTurntable, updateTurntable, spin } = await import('./turntable');
+    const turntable = createTurntable(THREE, quality);
+    turntable.position.y = -0.35;
+    scene.add(turntable);
+
+    let angle = 0;
+
     const tick = (now: number) => {
       const dt = Math.min(64, now - last);
       last = now;
+      const playing = store.room.value?.playback.isPlaying ?? false;
+      angle = spin(angle, dt, playing);
+      updateTurntable(turntable, angle, SILENT, 1);
       current.update(dt, SILENT);
       renderer.render(scene, camera);
     };
