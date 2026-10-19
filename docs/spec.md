@@ -56,6 +56,7 @@
 |---|--------|--------|--------|----------|
 | D11 | 成员离线后的去留 | 断开即从成员列表移除 | **保留在列表里，标 `online: false`** | "已离开"这个状态在原设计里根本不存在。一起听歌时看得见其他成员刚走，比看得见他凭空消失更像一个房间 |
 | D12 | 聊天是否落库 | **不落库**，只广播给在线成员，重连后看不到历史 | **落库，全部保留** | 用过之后发现"聊天记录一刷新就没了"是真的难受 |
+| D13 | "在线"的判据 | 连接还在（WebSocket 未断开） | **连接还在且页面在前台**，另加一个客户端上报的 `away` | 最小化窗口、切到别的应用、手机按 home 都**不会**断开 WebSocket。只看连接状态的话，人明明走了，点还是绿的 |
 
 D11 与 D12 的实现细节：
 
@@ -66,6 +67,13 @@ D11 与 D12 的实现细节：
   整份聊天记录重写一次存储，而它只会越来越大。快照只带**最近 200 条**——
   WebSocket 单帧有 1 MiB 上限，全量序列化迟早会撞上去，那是硬失败。
   更早的走 `GET /api/rooms/:code/chat?before=<id>` 按需取。
+- **D13**：`Member` 因此有两个标志，不是一个。`online` 是"连接还在"，
+  `away` 是"页面不在前台"，由客户端在 `visibilitychange` 时经
+  `{ type: 'presence', away }` 上报。**两者都假**才是界面上那个灰点。
+  重连时服务端把 `away` 翻回 false（连接还在就说明页面活着），
+  客户端在 `onopen` 立刻补报一次真实值，所以后台重连不会停在错的状态上。
+  上报是**幂等**的：真机上可见性事件会成串地来，重复上报不产生广播。
+  服务端只收布尔值——`away: "yes"` 这种隐式真值一律拒掉。
 
 ### 1.1 由决策推导出的、用户未反对的约定
 
@@ -228,6 +236,8 @@ type Member = {
   joinedAt: number;
   /** 断开连接后不从列表里删掉，只翻成 false（决策 D11） */
   online: boolean;
+  /** 页面不在前台（决策 D13）。客户端上报，与 online 是两件事 */
+  away: boolean;
 };
 
 type Playback = {
@@ -288,19 +298,22 @@ currentPosition(now) = isPlaying ? positionMs + (now - anchorAt) : positionMs
 | `dequeue` | `{trackId}` | 从队列移除 |
 | `reorder` | `{queue: string[]}` | 重排队列 |
 | `chat` | `{text}` | 聊天（≤ 500 字） |
+| `presence` | `{away: boolean}` | 页面是否在前台（决策 D13）。幂等，重复上报不广播 |
+| `theme` | `{theme}` | 换房间主题。必须过 `isThemeId()` 白名单，同值幂等 |
 | `ping` | `{}` | 保活 |
 
 ### 6.2 服务端 → 客户端
 
 | type | 载荷 | 说明 |
 |------|------|------|
-| `state` | `{room, serverNow}` | 连接/重连后的完整快照 |
+| `state` | `{room, chat, chatTotal, serverNow}` | 连接/重连后的完整快照。`chat` 只带最近 `CHAT_HISTORY_PAGE`（200）条，`chatTotal` 是总数 |
 | `playback` | `{playback, serverNow}` | 锚点变化 |
 | `sync` | `{playback, serverNow}` | 30 秒兜底同步帧（同结构，语义不同） |
 | `queue` | `{queue, epoch}` | 队列变化 |
 | `tracks` | `{tracks, epoch}` | 曲目表变化 |
-| `members` | `{members}` | 成员变化 |
-| `chat` | `{from, name, text, at}` | 聊天消息（**不持久化**） |
+| `members` | `{members}` | 成员变化（在线/离开、主题无关） |
+| `chat` | `ChatMessage` | 聊天消息（**已落库**，决策 D12） |
+| `theme` | `{theme}` | 房间主题变化 |
 | `error` | `{message}` | |
 
 **每一帧带播放状态的都**必须**带 `serverNow`**：客户端要拿它把锚点换算成

@@ -67,7 +67,15 @@ export class RoomDO extends DurableObject<Env> {
     const stored = await this.ctx.storage.get<RoomState>(STORAGE_KEY);
     // 升级前建的房间没有 theme 字段。不兜底的话客户端查表查不到，场景直接不出来
     // —— 而且只在"升级前建过房间"的设备上复现，本地开发大概率撞不到。
-    this.room = stored ? { ...stored, theme: themeOrDefault(stored.theme) } : null;
+    this.room = stored
+      ? {
+          ...stored,
+          theme: themeOrDefault(stored.theme),
+          // 升级前存下的成员没有 away 字段。补上默认值，别让 undefined
+          // 流进 UI —— 它会在真值判断里被当成 false，看着像好东西，其实是脏数据
+          members: stored.members.map((m) => ({ ...m, away: m.away === true })),
+        }
+      : null;
 
     this.chat = (await this.ctx.storage.get<ChatMessage[]>(CHAT_KEY)) ?? [];
     // 序号从已有记录的末尾续上。不这么做的话 DO 被驱逐一次，
@@ -295,13 +303,16 @@ export class RoomDO extends DurableObject<Env> {
     const existing = room.members.find((m) => m.clientId === clientId);
     if (existing) {
       // 同一个 clientId 又连上了（重连、或者开了第二个标签页）—— 翻回在线
-      const changed = existing.name !== name || !existing.online;
+      const changed = existing.name !== name || !existing.online || existing.away;
       existing.name = name;
       existing.online = true;
+      // 连接还在，说明这个页面至少还活着。如果它此刻在后台，客户端会立刻
+      // 再上报一次 away，不会停在错误的状态上
+      existing.away = false;
       if (changed) await this.save();
       return;
     }
-    room.members.push({ clientId, name, joinedAt: Date.now(), online: true });
+    room.members.push({ clientId, name, joinedAt: Date.now(), online: true, away: false });
     this.trimMembers(room);
     await this.save();
   }
@@ -444,6 +455,20 @@ export class RoomDO extends DurableObject<Env> {
         this.chat.push(message);
         await this.ctx.storage.put(CHAT_KEY, this.chat);
         this.broadcast({ type: 'chat', ...message });
+        break;
+      }
+
+      case 'presence': {
+        // 只收布尔值。`away: "yes"` 这种隐式真值一律拒掉 ——
+        // 这个字段会落盘并广播，不该由客户端的类型错误决定整个房间看到什么
+        if (typeof msg.away !== 'boolean') break;
+        const member = room.members.find((m) => m.clientId === tag);
+        if (!member) break;
+        // 幂等：可见性事件在真机上会成串地来，重复上报不该变成广播风暴
+        if (member.away === msg.away) break;
+        member.away = msg.away;
+        await this.save();
+        this.broadcast({ type: 'members', members: room.members });
         break;
       }
 

@@ -45,6 +45,19 @@ class RoomStore {
 
   private conn: ReturnType<typeof connect> | null = null;
 
+  constructor() {
+    // 页面一不可见就算"离开"。最小化窗口、切到别的应用、手机按 home 键
+    // 都不会断开 WebSocket，光看连接状态是看不出来的，所以另开一路上报。
+    //
+    // 常驻监听而不是随连接挂卸：连接会断线重连，可见性不会。
+    document.addEventListener('visibilitychange', () => this.reportPresence());
+  }
+
+  /** 把"页面还在不在前台"告诉服务端。没有连接时什么也不做。 */
+  private reportPresence(): void {
+    this.send({ type: 'presence', away: document.hidden });
+  }
+
   readonly currentTrack = computed<Track | null>(() => {
     const r = this.room.value;
     if (!r?.playback.trackId) return null;
@@ -103,6 +116,9 @@ class RoomStore {
     this.conn = connect(`/api/rooms/${code}/ws`, {
       onStatus: (s) => {
         this.status.value = s;
+        // 重连时服务端会把人翻回在线。如果这个页面此刻在后台，
+        // 那一下翻错了，得立刻纠正回来
+        if (s === 'open') this.reportPresence();
       },
       onMessage: (msg) => this.handle(msg),
     });

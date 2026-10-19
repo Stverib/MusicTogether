@@ -20,6 +20,7 @@ export type ClientMessage =
   | { type: 'dequeue'; trackId: string }
   | { type: 'reorder'; queue: string[] }
   | { type: 'chat'; text: string }
+  | { type: 'presence'; away: boolean }
   | { type: 'theme'; theme: ThemeId };
 
 export type ServerMessage =

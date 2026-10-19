@@ -63,6 +63,90 @@ describe('房间连接与成员', () => {
     expect(state.room.members[0].name).toBe('阿甲改名了');
   });
 
+  it('新连上的人默认是在线且在场', async () => {
+    const code = await newRoom();
+    const m = await member(code, '阿甲');
+    const state = await nextOfType(m.next, 'state');
+    expect(state.room.members[0].online).toBe(true);
+    expect(state.room.members[0].away).toBe(false);
+  });
+
+  it('页面不可见时标记为离开，回来又翻回在线', async () => {
+    const { members } = await roomWithMembers(['阿甲', '阿乙']);
+    const a = members[0]!;
+    const b = members[1]!;
+
+    a.ws.send(JSON.stringify({ type: 'presence', away: true }));
+
+    let latest: any = null;
+    for (let i = 0; i < 4; i++) {
+      latest = await nextOfType(b.next, 'members');
+      const jia = latest.members.find((m: any) => m.name === '阿甲');
+      if (jia && jia.away === true) break;
+    }
+    expect(latest.members.find((m: any) => m.name === '阿甲').away).toBe(true);
+    // 只是离开了页面，连接还在 —— online 不该被动
+    expect(latest.members.find((m: any) => m.name === '阿甲').online).toBe(true);
+
+    a.ws.send(JSON.stringify({ type: 'presence', away: false }));
+
+    for (let i = 0; i < 4; i++) {
+      latest = await nextOfType(b.next, 'members');
+      const jia = latest.members.find((m: any) => m.name === '阿甲');
+      if (jia && jia.away === false) break;
+    }
+    expect(latest.members.find((m: any) => m.name === '阿甲').away).toBe(false);
+  });
+
+  it('重复上报同一个状态是幂等的，不产生广播', async () => {
+    const { members } = await roomWithMembers(['阿甲', '阿乙']);
+    const a = members[0]!;
+    const b = members[1]!;
+
+    // 已经在场，再报一次在场不该有任何广播。后面排一条聊天当栅栏 ——
+    // 若中间插了 members 帧，这里读到的第一条就不是它
+    a.ws.send(JSON.stringify({ type: 'presence', away: false }));
+    a.ws.send(JSON.stringify({ type: 'chat', text: '栅栏' }));
+    expect((await nextOfType(b.next, 'chat')).text).toBe('栅栏');
+  });
+
+  it('离开页面的人重连后翻回在线', async () => {
+    const { code, members } = await roomWithMembers(['阿甲', '阿乙']);
+    const a = members[0]!;
+    const b = members[1]!;
+
+    b.ws.send(JSON.stringify({ type: 'presence', away: true }));
+    let latest: any = null;
+    for (let i = 0; i < 4; i++) {
+      latest = await nextOfType(a.next, 'members');
+      const yi = latest.members.find((m: any) => m.name === '阿乙');
+      if (yi && yi.away === true) break;
+    }
+    expect(latest.members.find((m: any) => m.name === '阿乙').away).toBe(true);
+
+    // 重连意味着页面又看得见了 —— 不翻回来的话，人会永远停在"已离开"
+    const again = await member(code, '阿乙', { clientId: b.clientId });
+    const state = await nextOfType(again.next, 'state');
+    expect(state.room.members.find((m: any) => m.name === '阿乙').away).toBe(false);
+  });
+
+  it('发非法 presence 载荷时房间状态不变', async () => {
+    const { code, members } = await roomWithMembers(['阿甲']);
+    const a = members[0]!;
+
+    a.ws.send(JSON.stringify({ type: 'presence' }));
+    a.ws.send(JSON.stringify({ type: 'presence', away: 'yes' }));
+    a.ws.send(JSON.stringify({ type: 'presence', away: 1 }));
+    // 栅栏
+    a.ws.send(JSON.stringify({ type: 'chat', text: '栅栏' }));
+    await nextOfType(a.next, 'chat');
+
+    const state = await SELF.fetch(`${ORIGIN}/api/rooms/${code}/state`, {
+      headers: { Cookie: a.cookie, 'CF-Connecting-IP': nextIp() },
+    });
+    expect(((await state.json()) as any).members[0].away).toBe(false);
+  });
+
   it('有人断线后留在成员列表里，但标记为已离开', async () => {
     const { members } = await roomWithMembers(['阿甲', '阿乙']);
     const a = members[0]!;

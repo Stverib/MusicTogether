@@ -42,6 +42,11 @@
   --ember-ink: #3a2412;
   --glow: rgba(242, 123, 60, 0.16);
 
+  /* 成员在线状态那一点绿。刻意不跟主色走 —— 橙色在这套界面里到处都是，
+     用它当状态色，"在线"会淹没在按钮和强调里读不出来。
+     对 --surface（#fffdfa）是 4.8:1，对 --bg（#fff8f2）是 4.6:1，都过 AA */
+  --online: #2e7d51;
+
   /* 播放器那张橙卡片。刻意不用深色 —— 它靠"最亮最饱和"当主角，
      不靠"最暗" */
   --card-grad:
@@ -736,11 +741,14 @@ input::placeholder {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  /* 灰点：已离开。也可能是"连接断了"或"页面切到后台了"，对看的人是一回事 */
   background: var(--ink-3);
 }
 .presence.on {
-  background: var(--ember-500);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ember-500) 22%, transparent);
+  /* 绿点：在线。用绿而不是暖橙 —— 橙色是这套界面的主色，
+     拿主色当状态色会让"在线"淹没在按钮和强调里 */
+  background: var(--online);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--online) 22%, transparent);
 }
 .list li.away .name {
   color: var(--ink-3);
