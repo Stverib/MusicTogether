@@ -1,6 +1,8 @@
 import { effect } from '@preact/signals';
+import { player } from '../player';
 import { store } from '../store';
-import { SILENT, type Energy } from './energy';
+import { createEnergySource, type EnergySource } from './analyser';
+import { SILENT, proceduralEnergy, type Energy } from './energy';
 import { loadTier, TIERS, type QualityTier } from './quality';
 import type { ThemeId } from '../../shared/themes';
 import type { Theme } from './themes/types';
@@ -124,14 +126,42 @@ class Stage {
 
     let angle = 0;
 
+    // 分析链。拿不到就退到程序化曲线 —— 场景永不呆滞，播放永不受影响。
+    // AudioContext 必须在用户手势里创建，而播放可能是**对方**发起的，
+    // 所以这里挂在第一次 pointerdown 上，一次性。
+    let source: EnergySource | null = null;
+    let elapsedMs = 0;
+    const armAnalyser = () => {
+      if (source) return;
+      // 这里必须用 player.audio 这个实例，不能 document.querySelector('audio') ——
+      // 后者现在能查到（播放器把它挂进了 body），但那是实现细节，
+      // 一旦播放器改成不挂载就静默失效：场景照跑，只是永远走兜底曲线
+      source = createEnergySource(player.audio);
+      removeEventListener('pointerdown', armAnalyser);
+    };
+    addEventListener('pointerdown', armAnalyser, { once: true });
+
     const tick = (now: number) => {
       const dt = Math.min(64, now - last);
       last = now;
+
       const playing = store.room.value?.playback.isPlaying ?? false;
+      elapsedMs = playing ? elapsedMs + dt : 0;
+
+      // 三层：本地分析 → 程序化兜底。分析失败不影响播放，只是场景节奏感弱一档
+      const energy = source?.read(dt) ?? proceduralEnergy(elapsedMs, playing);
+
       angle = spin(angle, dt, playing);
-      updateTurntable(turntable, angle, SILENT, 1);
-      current.update(dt, SILENT);
+      updateTurntable(turntable, angle, energy, 1);
+      current.update(dt, energy);
       renderer.render(scene, camera);
+
+      // 手机上没法看控制台，把状态挂到 DOM 上便于排查。
+      // 4 Hz 就够，每帧写属性纯属浪费
+      if (now - lastDebug > 250) {
+        lastDebug = now;
+        canvas.dataset.energy = energy.level.toFixed(2);
+      }
     };
 
     const loop = (now: number) => {
@@ -140,18 +170,14 @@ class Stage {
       // 锁屏 / 切后台时不该有任何渲染开销
       if (document.hidden) return;
       tick(now);
-
-      // 手机上没法看控制台，把状态挂到 DOM 上便于排查。
-      // 4 Hz 就够，每帧写属性纯属浪费
-      if (now - lastDebug > 250) {
-        lastDebug = now;
-        canvas.dataset.energy = '0.00';
-      }
     };
     this.raf = requestAnimationFrame(loop);
 
     this.cleanup = () => {
       window.removeEventListener('resize', resize);
+      removeEventListener('pointerdown', armAnalyser);
+      source?.dispose();
+      source = null;
       this.stopEffects?.();
       this.stopEffects = null;
       current.dispose();

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { createRoom } from './helpers';
+import { createRoom, makeWav, uploadOne, waitForPlaying } from './helpers';
 
 /** 让 WebGL 拿不到 context，模拟老设备 / 驱动被禁 */
 async function killWebgl(page: Page) {
@@ -67,4 +67,21 @@ test('客户端能容忍未知主题，场景退回默认而不是崩掉', async
   });
   expect(applied).toBe('dawn');
   await expect(page.locator('header strong')).toBeVisible();
+});
+
+test('播放时场景的能量观测点动起来，暂停后归零', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  await uploadOne(page, makeWav({ seconds: 60, name: 'energy-60s.wav' }));
+
+  const energy = page.locator('canvas.stage-canvas');
+  // 没播放时能量恒为 0
+  await expect(energy).toHaveAttribute('data-energy', '0.00');
+
+  // 点播放同时触发第一次 pointerdown，分析链就在那一刻挂上
+  await page.locator('.player .primary').click();
+  await waitForPlaying(page);
+
+  // 走兜底曲线也会动，所以这条测的是"整条链没断" ——
+  // RAF 在跑、能量算出来了、观测点写进去了。不是"用的是 Web Audio"
+  await expect.poll(() => energy.getAttribute('data-energy'), { timeout: 15_000 }).not.toBe('0.00');
 });
