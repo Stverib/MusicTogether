@@ -129,7 +129,10 @@ class RoomStore {
     const m = msg as Record<string, any>;
     switch (m.type) {
       case 'state': {
-        const room = m.room as RoomState;
+        const snapshot = m.room as RoomState;
+        // 快照同样要兜底：服务端已经校验过 theme，但客户端不该依赖这一点。
+        // 少了这层，未知主题会让画布回退到默认，切换器却一个都不高亮。
+        const room: RoomState = { ...snapshot, theme: themeOrDefault(snapshot.theme) };
         this.room.value = room;
         this.error.value = null;
         // 快照只带最近一页，更早的靠 chatTotal 与「加载更早」按钮去取
