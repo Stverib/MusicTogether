@@ -54,13 +54,22 @@ test('画布上带着当前主题，默认是 dawn', async ({ page }) => {
 });
 
 test('客户端能容忍未知主题，场景退回默认而不是崩掉', async ({ page }) => {
-  await createRoom(page, '阿甲');
-  // 服务端会拒掉非法主题，但客户端不该依赖这一点 —— 边界是双向的
-  const applied = await page.evaluate(() => {
-    const canvas = document.querySelector('canvas.stage-canvas');
-    return canvas?.getAttribute('data-theme') ?? null;
+  // 服务端会拒掉非法主题，但客户端不该依赖这一点 —— 边界是双向的。
+  // 这里把服务端下发的主题改写成未知值，模拟服务端版本不一致。
+  await page.routeWebSocket(/\/api\/rooms\/[^/]+\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((message) => {
+      if (typeof message !== 'string') return ws.send(message);
+      const msg = JSON.parse(message);
+      if (msg.type === 'state') msg.room.theme = 'starfield';
+      if (msg.type === 'theme') msg.theme = 'starfield';
+      ws.send(JSON.stringify(msg));
+    });
   });
-  expect(applied).toBe('dawn');
+
+  await createRoom(page, '阿甲');
+  await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-theme', 'dawn');
+  await expect(page.locator('.theme-switch button.on')).toHaveText('晨光');
   await expect(page.locator('header strong')).toBeVisible();
 });
 
