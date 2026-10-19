@@ -1,4 +1,7 @@
-import { SELF } from 'cloudflare:test';
+import { exports } from 'cloudflare:workers';
+
+/** `cloudflare:test` 的 SELF 已废弃，`exports.default` 指向同一个主 worker */
+export const SELF = exports.default;
 
 export const ORIGIN = 'https://example.com';
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { env } from 'cloudflare:test';
+import { env } from 'cloudflare:workers';
 import { DEFAULT_THEME } from '../../src/shared/themes';
 import { member, newRoom, nextOfType, roomWithMembers, stateOf } from './helpers';
 

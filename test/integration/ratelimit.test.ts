@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
-import { ORIGIN, joinRoom, newRoom, nextIp } from './helpers';
+import { ORIGIN, SELF, joinRoom, newRoom, nextIp } from './helpers';
 
 describe('限速', () => {
   it('建房：同一个 IP 一分钟内第 11 次开始返回 429，并带 Retry-After', async () => {

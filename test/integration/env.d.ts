@@ -2,10 +2,13 @@
 
 import type { Env as Bindings } from '../../src/server/env';
 
-// cloudflare:test 的 env 类型是 Cloudflare.Env，默认是空接口。
-// 把我们的绑定声明进去，否则测试里访问 env.BUCKET 会报"属性不存在"。
+// Cloudflare.Env 默认是空接口，绑定声明进去才能访问 env.BUCKET。
+// mainModule 让 `exports.default` 在测试里带上主 worker 的类型。
 declare global {
   namespace Cloudflare {
     interface Env extends Bindings {}
+    interface GlobalProps {
+      mainModule: typeof import('../../src/server/index');
+    }
   }
 }

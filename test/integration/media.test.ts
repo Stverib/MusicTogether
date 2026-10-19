@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { SELF, env } from 'cloudflare:test';
+import { env } from 'cloudflare:workers';
 import {
   ORIGIN,
+  SELF,
   fakeSong,
   joinRoom,
   newRoom,

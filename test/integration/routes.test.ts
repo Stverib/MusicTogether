@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
-import { ORIGIN, joinRoom, newRoom, nextIp, roomWith, stateOf } from './helpers';
+import { ORIGIN, SELF, joinRoom, newRoom, nextIp, roomWith, stateOf } from './helpers';
 
 describe('HTTP 路由', () => {
   it('/api/health 返回 ok', async () => {

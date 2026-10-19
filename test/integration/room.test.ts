@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
 import {
   ORIGIN,
+  SELF,
   joinRoom,
   member,
   newRoom,

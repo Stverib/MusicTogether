@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
-import { ORIGIN, chatOf, member, nextIp, nextOfType, roomWithMembers, stateOf } from './helpers';
+import { ORIGIN, SELF, chatOf, member, nextIp, nextOfType, roomWithMembers, stateOf } from './helpers';
 
 describe('聊天', () => {
   it('消息广播给房间里所有人，含发送者', async () => {
