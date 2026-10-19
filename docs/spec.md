@@ -25,7 +25,7 @@
    本地所有请求来自同一个 IP，不放宽的话测试套件会把自己挡住。
 6. **3D 舞台的 `three` 拆成独立 chunk**，进房间之后才动态加载。Vite 8 走
    rolldown，`manualChunks` 的对象形式直接报错，`advancedChunks` 也已废弃，
-   所以用的是 `codeSplitting.groups`。首屏只多 3.5 KB。
+   所以用的是 `codeSplitting.groups`。首屏只多 1.7 KB。
 7. **律动数据绝不上行**。主路用 `audio.captureStream()` 从旁边接一路出来分析，
    **不重路由** `audio` 元素的输出；备路 `createMediaElementSource()` 不可撤销，
    所以销毁时必须让 source 直连 destination，否则整首歌永久静音。

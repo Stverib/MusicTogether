@@ -8,6 +8,9 @@
 - 为开源发布做了一轮整理：重写 README、补充 MIT 许可证、把文档里只对原始
   私有部署成立的一次性表述改成中性描述，并对全部提交历史做了脱敏
   （个人信息、内网地址、房间码、提交邮箱）。
+- 集成测试迁到 `cloudflare:workers` 的 `env` 与 `exports.default`，
+  `cloudflare:test` 的 `SELF`/`env` 已废弃；`GlobalProps.mainModule` 让
+  `exports.default` 在测试里保持主 worker 的类型。
 
 ## 2026-10-19
 
@@ -22,7 +25,7 @@
   备路 `createMediaElementSource()` → 程序化曲线。音频能量只在本地计算，不上行
 - 三条降级路径都不影响播放：拿不到 WebGL、three 的 chunk 拉不下来、运行期抛异常
 - 画质只降不升，按实测帧时间判定，档位存在本地、不上行
-- 首屏增长 1.7 KB（42,798 B → 44,520 B）。整棵场景树走动态 import，
+- 首屏增长 1.7 KB（42,798 B → 44,550 B）。整棵场景树走动态 import，
   是一个独立的 5.6 KB chunk；three 另在 736 KB 的 chunk 里，进房间才拉
 
 **踩坑**：`npx vitest` 曾被 RTK 钩子解析成另一个 vitest，集成测试池起不来。
@@ -57,15 +60,13 @@ ID3 里只有歌手/标题/专辑/注释），但 322 个（80.1%）有同名 `.
 
 ### 尚未完成
 
-- 3D 舞台真机验收：HarmonyOS / Android 浏览器上 WebGL 是否可用；
-  连续播放 30 分钟观察温度与掉帧；锁屏 / 切后台后音频继续播放
+- 3D 舞台真机验收：HarmonyOS / Android 的 WebGL 均已可用，锁屏 / 切后台后
+  音频继续播放也已复现；仍缺连续播放 30 分钟的温度与掉帧观察
 - 两个主题的观感只有代码与 E2E 覆盖，还没有人工过目；手机自动降画质的
   实际效果也未验证
 - PWA 安装与锁屏媒体控制没有验证过：局域网 HTTP 不是安全上下文，
   Service Worker 装不上，要等 HTTPS（部署，或用 `cloudflared tunnel`
   临时把本地 dev server 暴露成 HTTPS）
-- `cloudflare:test` 的 `env`/`SELF` 已废弃，应迁移到 `cloudflare:workers`
-  的 `env` 与 `exports.default.fetch()`
 
 ## 2026-10-18
 

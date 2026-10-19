@@ -53,7 +53,7 @@ MusicTogether 是一个可自托管的同步听歌 Web 应用。房间里的每�
 `prefers-reduced-motion: reduce` 时渲染静态场景，唱片不转。
 首屏不背 `three`：**整棵场景树**（stage + 画质 + 律动 + 主题）是一个独立的
 5.6 KB chunk，进房间之后才按需加载；`three` 另在 736 KB 的 chunk 里。
-首屏只多 **1.7 KB**（42,798 → 44,520 B）。
+首屏只多 **1.7 KB**（42,798 → 44,550 B）。
 
 ## 架构
 
