@@ -12,9 +12,10 @@ export default defineConfig({
         // 拆出来才能让首屏不背这 150 KB（gzip 后），也才能让 E2E
         // 按文件名拦住它来模拟"拉不下来"这条降级路径。
         //
-        // 用 advancedChunks 而不是 manualChunks 的对象形式：Vite 8 走 rolldown，
-        // 它只认函数形式的 manualChunks，对象形式直接报 "manualChunks is not a function"
-        advancedChunks: {
+        // 用 codeSplitting 而不是 manualChunks 的对象形式：Vite 8 走 rolldown，
+        // 它只认函数形式的 manualChunks（对象形式直接报 "manualChunks is not
+        // a function"），而 advancedChunks 这个名字在 rolldown 里也已废弃
+        codeSplitting: {
           groups: [{ name: 'three', test: /node_modules[\\/]three[\\/]/ }],
         },
       },

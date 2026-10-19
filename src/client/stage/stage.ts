@@ -11,7 +11,7 @@ import {
   TIERS,
   type QualityTier,
 } from './quality';
-import type { ThemeId } from '../../shared/themes';
+import { themeOrDefault, type ThemeId } from '../../shared/themes';
 import type { Theme } from './themes/types';
 
 /**
@@ -96,7 +96,6 @@ class Stage {
 
     // 订阅房间状态。主题是房间级的，切的时候新旧两个一起在场做交叉淡入淡出
     const { THEME_FACTORIES } = await import('./themes');
-    const { themeOrDefault } = await import('../../shared/themes');
 
     // 查表单独包一层：白名单里只有一个主题时，`if (id === currentId) return`
     // 会把 `id` 窄化成 `never` —— 没有任何取值能落进 else 分支，于是
