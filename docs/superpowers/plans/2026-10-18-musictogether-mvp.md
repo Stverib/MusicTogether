@@ -144,7 +144,7 @@ MusicTogether/
 </style>
 
 <h1>MusicTogether 能力验证</h1>
-<p>在<strong>HarmonyOS 手机</strong>上用浏览器打开本页，从上到下逐个测。</p>
+<p>在<strong>目标设备</strong>的浏览器中打开本页，从上到下逐个测。</p>
 
 <h2>R1 · 能不能播音频</h2>
 <div class="r" id="r1">点下面按钮。能听到一段 3 秒的提示音、且进度条在走，就算通过。</div>
@@ -275,11 +275,11 @@ log('IndexedDB: ' + (typeof indexedDB !== 'undefined' ? '有' : '没有'));
 ```markdown
 # 真机能力验证
 
-目的：在做任何产品代码之前，先确认规格 §2 的三条假设在HarmonyOS 手机上是否成立。
+目的：在做任何产品代码之前，先确认规格 §2 的三条假设在目标设备上是否成立。
 
 ## 怎么跑
 
-手机和电脑连同一个 WiFi，在项目根目录起一个静态服务器：
+手机和开发机连同一个局域网，在项目根目录起一个静态服务器：
 
     npx serve spike
 
@@ -310,7 +310,7 @@ git add spike/
 git commit -m "spike: add on-device capability verification page"
 ```
 
-- [x] **Step 4: 【人工验收】在HarmonyOS 手机上跑一遍** —— 2026-10-18 通过（R1/R1b/R2/R3 全部正常）
+- [x] **Step 4: 【人工验收】在 HarmonyOS 手机上跑一遍** —— 2026-10-18 通过（R1/R1b/R2/R3 全部正常）
 
 这一步必须由项目所有者完成 —— 自动化测试无法替代。把 R1 / R1b / R2 / R3 四项结果告知执行者。
 
@@ -5440,9 +5440,9 @@ git commit -m "test(security): e2e regression suite and manual penetration check
 - [ ] 在 `docs/spec.md` 顶部把状态改为「已实现」并记录与规格的偏差
 - [ ] 写 `CLAUDE.md`（≤100 行）：只放稳定的项目约定 —— 常用命令、架构一句话、以及本项目的红线（协议纪律、必须流式、必须心跳、Cookie 鉴权的原因）
 - [ ] 部署：`wrangler secret put SESSION_SECRET` → `npm run deploy`
-- [ ] 【人工验收】在HarmonyOS 手机与安卓手机上各跑一遍完整流程
-      —— 鸿蒙端已完成（2026-10-18，局域网 `wrangler dev`，手机上传、两端都能听到）；
-      安卓端与 PWA 安装 / 锁屏媒体控制仍未验（后者需要 HTTPS）
+- [ ] 【人工验收】在 HarmonyOS 手机与 Android 手机上各跑一遍完整流程
+      —— HarmonyOS 端已完成（2026-10-18，局域网 `wrangler dev`，手机上传、两端都能听到）；
+      Android 端与 PWA 安装 / 锁屏媒体控制仍未验证（后者需要 HTTPS）
 
 ---
 

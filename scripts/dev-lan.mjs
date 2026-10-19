@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 局域网 / 局域网直连用的服务启动器。
+// 局域网直连用的服务启动器。
 //
 // 存在的理由有两个，都不只是"图方便"：
 //
@@ -8,8 +8,8 @@
 //    DHCP 给的、会变；而且 Windows 的 `networkInterfaces()` 里还混着
 //    VMware / Hyper-V / WSL 的虚拟网卡，随手挑一个就是别人连不上的那种。
 //
-// 2. **你自己也必须从局域网地址进，不能从 localhost 进。**
-//    「分享房间」的链接是按 `location.origin` 生成的 —— 你从 localhost 进，
+// 2. **操作者也必须从局域网地址进入，不能从 localhost 进入。**
+//    「分享房间」的链接是按 `location.origin` 生成的 —— 从 localhost 进入，
 //    生成的就是 `http://localhost:8787/r/CODE`，发给其他参与者是一串打不开的东西，
 //    而且这个错误毫无提示，只有对方点开发现打不开才知道。
 
@@ -33,7 +33,7 @@ function candidates() {
       out.push({ name, address: a.address, virtual: VIRTUAL.test(name) });
     }
   }
-  // 真网卡优先；同为真网卡时，家用/局域网更常见的段优先
+  // 真网卡优先；同为真网卡时，家用/办公网络更常见的段优先
   const rank = (c) =>
     (c.virtual ? 100 : 0) +
     (c.address.startsWith('192.168.') ? 0 : c.address.startsWith('10.') ? 1 : 2);
@@ -57,12 +57,12 @@ const others = found.slice(1);
 console.log(`
   MusicTogether —— 局域网直连
   ────────────────────────────────────────────────────────
-  你自己打开：  ${url}
-  发给其他参与者：    ${url}      （要和你连同一个局域网）
+  本机打开：    ${url}
+  分享地址：    ${url}      （需要与你在同一局域网）
   选中的网卡：  ${best.name}
 ${others.length ? `  其它候选：    ${others.map((c) => `${c.address} (${c.name})`).join('\n                ')}\n` : ''}
   ⚠ 用上面这个地址，不要用 http://localhost:${PORT} ——
-    「分享房间」的链接是按当前地址生成的，localhost 的链接别人打不开。
+    「分享房间」的链接是按当前地址生成的，localhost 的链接在其他设备上打不开。
 
   ⚠ 这是明文 HTTP，同网段的人扫到端口就能打开这个页面。
     用完 Ctrl-C 停掉，别让它一直开着。

@@ -12,7 +12,7 @@
 
     npm run dev            # 前端开发服务器（Vite，5173，/api 代理到 8787）
     npm run dev:worker     # 本地 Worker（wrangler，8787，只绑 localhost）
-    npm run dev:lan        # 局域网/局域网直连：绑 0.0.0.0 并打印可分享的地址
+    npm run dev:lan        # 局域网直连：绑 0.0.0.0 并打印可分享的地址
     npm test               # 单元 + 集成测试
     npm run test:e2e       # Playwright（跑构建产物，8788；用系统 Edge）
     npm run typecheck      # 前端与服务端两套 tsconfig 都检查

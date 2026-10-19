@@ -34,7 +34,7 @@
 
 ## 1. 决策记录
 
-以下每一条都是与用户逐条确认过的，不是推断。
+以下每一条都在设计前逐条确认过，不是推断。
 
 | # | 决策点 | 结论 |
 |---|--------|------|
@@ -340,7 +340,7 @@ this.room = stored ? { ...stored, theme: themeOrDefault(stored.theme) } : null;
 - **没有新增 HTTP 端点、没有新增鉴权面**：主题走的是既有的、已鉴权的 WebSocket，
   所以红线 5（`session.room === 路径房间码`）已经覆盖它
 - **CSP 不变**（§2）。绝不给 `script-src` 加 `unsafe-eval`
-- `three` 是第三个运行时依赖，理由：用户明确要求、MIT、**已实测 0 处
+- `three` 是第三个运行时依赖，理由：项目明确要求、MIT、**已实测 0 处
   `eval`/`new Function`**、且按需加载不影响首屏（红线 13）
 
 ---
