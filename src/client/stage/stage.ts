@@ -104,22 +104,39 @@ class Stage {
     // 参数带显式类型就绕开了这个窄化，加第二个主题之后这个坑自己会消失
     const makeTheme = (id: ThemeId) => THEME_FACTORIES[id]();
 
+    // 无障碍：要求减少动态效果时渲染静态场景，播放状态交给现有 UI 表达
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    canvas.dataset.motion = reducedMotion ? 'reduced' : 'full';
+
     let currentId = themeOrDefault(store.room.value?.theme);
     let current = makeTheme(currentId);
     current.build({ scene, renderer, quality });
     canvas.dataset.theme = currentId;
 
+    let lastTrackId: string | null = null;
+    let songBoostUntil = 0;
+
     this.stopEffects = effect(() => {
-      const id = themeOrDefault(store.room.value?.theme);
-      if (id === currentId) return;
-      // 切主题：旧的留在场上淡出，新的淡入，过渡结束后才 dispose
-      const outgoing = current;
-      currentId = id;
-      current = makeTheme(id);
-      current.build({ scene, renderer, quality });
-      current.setWeight(0);
-      canvas.dataset.theme = id;
-      this.crossFade(outgoing, current);
+      const room = store.room.value;
+      const id = themeOrDefault(room?.theme);
+      if (id !== currentId) {
+        // 切主题：旧的留在场上淡出，新的淡入，过渡结束后才 dispose
+        const outgoing = current;
+        currentId = id;
+        current = makeTheme(id);
+        current.build({ scene, renderer, quality });
+        current.setWeight(0);
+        canvas.dataset.theme = id;
+        this.crossFade(outgoing, current);
+      }
+
+      const trackId = room?.playback.trackId ?? null;
+      if (trackId !== lastTrackId) {
+        // 从"没有歌"变成"有歌"也算一次 —— 进房间点第一首时看得见那一下
+        songBoostUntil = performance.now() + 900;
+        canvas.dataset.transition = 'song';
+        lastTrackId = trackId;
+      }
     });
 
     let last = performance.now();
@@ -184,18 +201,36 @@ class Stage {
       elapsedMs = playing ? elapsedMs + dt : 0;
 
       // 三层：本地分析 → 程序化兜底。分析失败不影响播放，只是场景节奏感弱一档
-      const energy = source?.read(dt) ?? proceduralEnergy(elapsedMs, playing);
+      const raw = source?.read(dt) ?? proceduralEnergy(elapsedMs, playing);
 
-      angle = spin(angle, dt, playing);
-      updateTurntable(turntable, angle, energy, 1);
-      current.update(dt, energy);
+      if (songBoostUntil && now >= songBoostUntil) {
+        songBoostUntil = 0;
+        delete canvas.dataset.transition;
+      }
+      // 切歌瞬间给一记额外的能量脉冲，粒子会先炸开再聚拢
+      const boost = songBoostUntil ? 1 + (songBoostUntil - now) / 900 : 1;
+      const energy: Energy =
+        boost === 1
+          ? raw
+          : {
+              level: Math.min(1, raw.level * boost),
+              bass: Math.min(1, raw.bass * boost),
+              treble: Math.min(1, raw.treble * boost),
+            };
+
+      // 要求减少动态效果时：唱片不转、能量恒为静默。场景仍在，只是不动
+      const motion: Energy = reducedMotion ? SILENT : energy;
+
+      angle = spin(angle, dt, playing && !reducedMotion);
+      updateTurntable(turntable, angle, motion, 1);
+      current.update(dt, motion);
       renderer.render(scene, camera);
 
       // 手机上没法看控制台，把状态挂到 DOM 上便于排查。
       // 4 Hz 就够，每帧写属性纯属浪费
       if (now - lastDebug > 250) {
         lastDebug = now;
-        canvas.dataset.energy = energy.level.toFixed(2);
+        canvas.dataset.energy = motion.level.toFixed(2);
       }
     };
 

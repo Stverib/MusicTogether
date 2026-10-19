@@ -95,3 +95,22 @@ test('画布上挂着画质档位与实测帧时间', async ({ page }) => {
   // 帧时间是 2 秒一个滚动窗口，窗口一到才挂出来
   await expect(canvas).toHaveAttribute('data-frame-ms', /\d/, { timeout: 10_000 });
 });
+
+test('切歌时场景进入过渡，结束后回到稳态', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  await uploadOne(page, makeWav({ seconds: 60, name: 'a-60s.wav' }));
+
+  const canvas = page.locator('canvas.stage-canvas');
+  await expect(canvas).not.toHaveAttribute('data-transition', 'song');
+
+  await page.locator('.queue li').first().click();
+  await expect(canvas).toHaveAttribute('data-transition', 'song', { timeout: 10_000 });
+  // 900 ms 后自己收掉，不会一直挂着
+  await expect(canvas).not.toHaveAttribute('data-transition', 'song', { timeout: 10_000 });
+});
+
+test('prefers-reduced-motion 下不跑动画，但场景仍在', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await createRoom(page, '阿甲');
+  await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-motion', 'reduced');
+});
