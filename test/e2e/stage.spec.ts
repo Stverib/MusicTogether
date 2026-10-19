@@ -46,3 +46,9 @@ test('three 的 chunk 加载失败时应用照常可用', async ({ browser }) =>
 
   await ctx.close();
 });
+
+test('画布上带着当前主题，默认是 dawn', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-theme', 'dawn');
+  await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-stage', 'ready');
+});

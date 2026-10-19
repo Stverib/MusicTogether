@@ -2,6 +2,8 @@ import { effect } from '@preact/signals';
 import { store } from '../store';
 import { SILENT, type Energy } from './energy';
 import { loadTier, TIERS, type QualityTier } from './quality';
+import type { ThemeId } from '../../shared/themes';
+import type { Theme } from './themes/types';
 
 /**
  * 场景层。
@@ -83,21 +85,50 @@ class Stage {
     resize();
     window.addEventListener('resize', resize);
 
-    // 订阅房间状态。这一版只是把订阅接通，主题在 Task 4 接上
+    // 订阅房间状态。主题是房间级的，切的时候新旧两个一起在场做交叉淡入淡出
+    const { THEME_FACTORIES } = await import('./themes');
+    const { themeOrDefault } = await import('../../shared/themes');
+
+    // 查表单独包一层：白名单里只有一个主题时，`if (id === currentId) return`
+    // 会把 `id` 窄化成 `never` —— 没有任何取值能落进 else 分支，于是
+    // `THEME_FACTORIES[id]` 成了对 `never` 取下标，编译不过。
+    // 参数带显式类型就绕开了这个窄化，加第二个主题之后这个坑自己会消失
+    const makeTheme = (id: ThemeId) => THEME_FACTORIES[id]();
+
+    let currentId = themeOrDefault(store.room.value?.theme);
+    let current = makeTheme(currentId);
+    current.build({ scene, renderer, quality });
+    canvas.dataset.theme = currentId;
+
     this.stopEffects = effect(() => {
-      void store.room.value;
+      const id = themeOrDefault(store.room.value?.theme);
+      if (id === currentId) return;
+      // 切主题：旧的留在场上淡出，新的淡入，过渡结束后才 dispose
+      const outgoing = current;
+      currentId = id;
+      current = makeTheme(id);
+      current.build({ scene, renderer, quality });
+      current.setWeight(0);
+      canvas.dataset.theme = id;
+      this.crossFade(outgoing, current);
     });
 
     let last = performance.now();
     let lastDebug = 0;
+
+    const tick = (now: number) => {
+      const dt = Math.min(64, now - last);
+      last = now;
+      current.update(dt, SILENT);
+      renderer.render(scene, camera);
+    };
 
     const loop = (now: number) => {
       if (this.disposed) return;
       this.raf = requestAnimationFrame(loop);
       // 锁屏 / 切后台时不该有任何渲染开销
       if (document.hidden) return;
-      last = now;
-      renderer.render(scene, camera);
+      tick(now);
 
       // 手机上没法看控制台，把状态挂到 DOM 上便于排查。
       // 4 Hz 就够，每帧写属性纯属浪费
@@ -112,10 +143,28 @@ class Stage {
       window.removeEventListener('resize', resize);
       this.stopEffects?.();
       this.stopEffects = null;
+      current.dispose();
       renderer.dispose();
     };
 
     canvas.dataset.stage = 'ready';
+  }
+
+  /** 交叉淡入淡出。**同一时刻最多两个 Theme 存活** —— 过渡结束旧的才 dispose */
+  private crossFade(outgoing: Theme, incoming: Theme): void {
+    const DURATION = 900;
+    const start = performance.now();
+    const step = () => {
+      const t = Math.min(1, (performance.now() - start) / DURATION);
+      incoming.setWeight(t);
+      outgoing.setWeight(1 - t);
+      if (t < 1 && !this.disposed) {
+        requestAnimationFrame(step);
+      } else {
+        outgoing.dispose();
+      }
+    };
+    requestAnimationFrame(step);
   }
 
   private teardown(): void {
