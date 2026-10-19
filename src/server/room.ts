@@ -15,6 +15,7 @@ import {
   type ServerMessage,
 } from '../shared/protocol';
 import type { ChatMessage, Playback, RoomState, Track } from '../shared/types';
+import { DEFAULT_THEME, isThemeId, themeOrDefault } from '../shared/themes';
 import type { Env } from './env';
 import { MAX_ROOM_BYTES, MAX_TRACKS_PER_ROOM } from './media';
 
@@ -58,13 +59,20 @@ export class RoomDO extends DurableObject<Env> {
     super(ctx, env);
     // 应用层心跳由运行时直接应答，这类往返不会唤醒房间
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
-    this.ctx.blockConcurrencyWhile(async () => {
-      this.room = (await this.ctx.storage.get<RoomState>(STORAGE_KEY)) ?? null;
-      this.chat = (await this.ctx.storage.get<ChatMessage[]>(CHAT_KEY)) ?? [];
-      // 序号从已有记录的末尾续上。不这么做的话 DO 被驱逐一次，
-      // 新消息的 id 就从头开始，"取更早"的游标会指到错的地方
-      this.chatSeq = this.chat[this.chat.length - 1]?.id ?? 0;
-    });
+    this.ctx.blockConcurrencyWhile(() => this.loadFromStorage());
+  }
+
+  /** 从持久化状态重建内存态。构造函数与测试用的重载端点都走这里 */
+  private async loadFromStorage(): Promise<void> {
+    const stored = await this.ctx.storage.get<RoomState>(STORAGE_KEY);
+    // 升级前建的房间没有 theme 字段。不兜底的话客户端查表查不到，场景直接不出来
+    // —— 而且只在"升级前建过房间"的设备上复现，本地开发大概率撞不到。
+    this.room = stored ? { ...stored, theme: themeOrDefault(stored.theme) } : null;
+
+    this.chat = (await this.ctx.storage.get<ChatMessage[]>(CHAT_KEY)) ?? [];
+    // 序号从已有记录的末尾续上。不这么做的话 DO 被驱逐一次，
+    // 新消息的 id 就从头开始，"取更早"的游标会指到错的地方
+    this.chatSeq = this.chat[this.chat.length - 1]?.id ?? 0;
   }
 
   // ---------- 持久化 ----------
@@ -107,6 +115,15 @@ export class RoomDO extends DurableObject<Env> {
     }
     if (path === '/exists') {
       return this.room ? Response.json({ ok: true }) : new Response('no room', { status: 404 });
+    }
+    if (path === '/__test_write_state' && request.method === 'POST') {
+      // 仅测试用：写回一份人造的持久化状态并重载，用来覆盖"升级前的房间"
+      // 那条分支 —— 它只在老数据上复现，正常路径永远走不到。
+      // DO 没有公网路由，只有 Worker 能经 binding 调它，而 Worker 不转发这个
+      // 路径，所以这不构成外部攻击面。
+      await this.ctx.storage.put(STORAGE_KEY, await request.json());
+      await this.loadFromStorage();
+      return Response.json({ ok: true });
     }
 
     if (!this.room) return new Response('no room', { status: 404 });
@@ -161,6 +178,7 @@ export class RoomDO extends DurableObject<Env> {
       queue: [],
       playback: emptyPlayback(),
       epoch: 0,
+      theme: DEFAULT_THEME,
     };
     await this.save();
     return Response.json({ ok: true, code });
@@ -426,6 +444,17 @@ export class RoomDO extends DurableObject<Env> {
         this.chat.push(message);
         await this.ctx.storage.put(CHAT_KEY, this.chat);
         this.broadcast({ type: 'chat', ...message });
+        break;
+      }
+
+      case 'theme': {
+        // 边界处一律校验：这个值会落进持久化状态并广播给全房间
+        if (!isThemeId(msg.theme)) break;
+        // 幂等。重复设同一个主题不该产生一次无谓的广播与一次落盘
+        if (room.theme === msg.theme) break;
+        room.theme = msg.theme;
+        await this.save();
+        this.broadcast({ type: 'theme', theme: room.theme });
         break;
       }
 

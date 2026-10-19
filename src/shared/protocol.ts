@@ -1,3 +1,4 @@
+import type { ThemeId } from './themes';
 import type { ChatMessage, Member, Playback, RoomState, Track } from './types';
 
 /**
@@ -18,7 +19,8 @@ export type ClientMessage =
   | { type: 'enqueue'; trackId: string }
   | { type: 'dequeue'; trackId: string }
   | { type: 'reorder'; queue: string[] }
-  | { type: 'chat'; text: string };
+  | { type: 'chat'; text: string }
+  | { type: 'theme'; theme: ThemeId };
 
 export type ServerMessage =
   /**
@@ -44,6 +46,7 @@ export type ServerMessage =
   | { type: 'tracks'; tracks: Track[]; epoch: number }
   | { type: 'members'; members: Member[] }
   | ({ type: 'chat' } & ChatMessage)
+  | { type: 'theme'; theme: ThemeId }
   | { type: 'error'; message: string };
 
 export const CHAT_MAX_LENGTH = 500;
