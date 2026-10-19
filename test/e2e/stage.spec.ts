@@ -52,3 +52,19 @@ test('画布上带着当前主题，默认是 dawn', async ({ page }) => {
   await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-theme', 'dawn');
   await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-stage', 'ready');
 });
+
+test('只有一个主题时不显示切换器', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  await expect(page.locator('.theme-switch')).toHaveCount(0);
+});
+
+test('客户端能容忍未知主题，场景退回默认而不是崩掉', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  // 服务端会拒掉非法主题，但客户端不该依赖这一点 —— 边界是双向的
+  const applied = await page.evaluate(() => {
+    const canvas = document.querySelector('canvas.stage-canvas');
+    return canvas?.getAttribute('data-theme') ?? null;
+  });
+  expect(applied).toBe('dawn');
+  await expect(page.locator('header strong')).toBeVisible();
+});

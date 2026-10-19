@@ -1,4 +1,5 @@
 import { computed, signal } from '@preact/signals';
+import { isThemeId, themeOrDefault, type ThemeId } from '../shared/themes';
 import type { ChatMessage, Playback, RoomState, Track } from '../shared/types';
 import { connect, type ConnStatus } from './ws';
 
@@ -175,6 +176,14 @@ class RoomStore {
         this.chatTotal.value = Math.max(this.chatTotal.value, this.chat.value.length);
         break;
 
+      case 'theme': {
+        const room = this.room.value;
+        // 查表用的值必须兜底：服务端已经校验过，但客户端不该依赖这一点 ——
+        // 少兜一层的话，一个未知主题会让场景直接不出来
+        if (room) this.room.value = { ...room, theme: themeOrDefault(m.theme) };
+        break;
+      }
+
       case 'error':
         this.error.value = String(m.message ?? '出错了');
         break;
@@ -193,6 +202,14 @@ class RoomStore {
 
   send(msg: unknown): void {
     this.conn?.send(msg);
+  }
+
+  /** 换房间主题。房间级、平权 —— 跟播放/暂停一样，谁都能改 */
+  setTheme(theme: ThemeId): void {
+    // 白名单在这里再挡一次。值来自我们自己的按钮，但边界是双向的：
+    // 服务端也校验，客户端也校验，谁都不依赖对方
+    if (!isThemeId(theme)) return;
+    this.send({ type: 'theme', theme });
   }
 
   /**

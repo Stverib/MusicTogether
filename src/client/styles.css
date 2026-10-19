@@ -484,6 +484,30 @@ input::placeholder {
   background: var(--danger);
 }
 
+/* 房间主题切换器。房间级、平权 —— 跟播放/暂停一样，谁都能点 */
+.theme-switch {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.theme-switch button {
+  border: none;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.theme-switch button.on {
+  background: var(--ember);
+  color: var(--ember-ink);
+}
+
 .banner {
   display: flex;
   align-items: center;

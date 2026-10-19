@@ -8,8 +8,12 @@ import { Player } from './components/Player';
 import { Queue } from './components/Queue';
 import './player'; // 实例化播放器并挂上 store.onPlayback
 import { codeFromUrl, roomLink, shareRoom } from './share';
+import { THEME_IDS, type ThemeId } from '../shared/themes';
 import { stage } from './stage/stage';
 import { savedName, savedRoom, store } from './store';
+
+/** 主题的中文名。加主题时在这里补一行 */
+const THEME_NAMES: Record<ThemeId, string> = { dawn: '晨光' };
 
 export function App() {
   const room = store.room.value;
@@ -69,6 +73,21 @@ export function App() {
         </strong>
         <span class={`dot ${status}`} title={status} />
         <span class="grow" />
+        {/* 只有一个主题时切换器没有意义，不渲染 —— 别摆一个点了没反应的按钮 */}
+        {THEME_IDS.length > 1 && (
+          <div class="theme-switch">
+            {THEME_IDS.map((id) => (
+              <button
+                key={id}
+                class={id === room.theme ? 'on' : ''}
+                title={`切换到${THEME_NAMES[id]}`}
+                onClick={() => store.setTheme(id)}
+              >
+                {THEME_NAMES[id]}
+              </button>
+            ))}
+          </div>
+        )}
         <button class="icon" title="分享房间" onClick={() => void onShare()}>
           分享
         </button>
