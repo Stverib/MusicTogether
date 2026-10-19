@@ -1,7 +1,10 @@
 # MusicTogether — 项目约定
 
-和别人一起听同一首歌，进度条保持同步。纯网页 / PWA，跑在 Cloudflare 上。
+和别人一起听同一首歌，进度条保持同步。纯网页 / PWA。
 
+> **已放弃部署到 Cloudflare（2026-10-19）**，但**运行时没变** —— 现在由
+> `npm run dev:lan` 在本机跑 `wrangler dev`（Worker + DO + R2 的本地模拟），
+> 其他成员走局域网 / 局域网直连。改的是部署目标，不是架构。
 > 面向人的入口在 `README.md`。完整设计见 `docs/spec.md`，安全威胁模型见
 > `docs/security.md`，实现计划见 `docs/superpowers/plans/`。
 > 本文件只放稳定约定与红线。
