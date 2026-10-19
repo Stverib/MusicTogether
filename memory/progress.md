@@ -25,7 +25,7 @@
   备路 `createMediaElementSource()` → 程序化曲线。音频能量只在本地计算，不上行
 - 三条降级路径都不影响播放：拿不到 WebGL、three 的 chunk 拉不下来、运行期抛异常
 - 画质只降不升，按实测帧时间判定，档位存在本地、不上行
-- 首屏增长 1.7 KB（42,798 B → 44,550 B）。整棵场景树走动态 import，
+- 首屏增长 1.7 KB（42,798 B → 44,577 B）。整棵场景树走动态 import，
   是一个独立的 5.6 KB chunk；three 另在 736 KB 的 chunk 里，进房间才拉
 
 **踩坑**：`npx vitest` 曾被 RTK 钩子解析成另一个 vitest，集成测试池起不来。
