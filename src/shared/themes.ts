@@ -7,7 +7,7 @@
  *
  * 新增主题时只改这个数组，再往 `src/client/stage/themes/` 加一份实现。
  */
-export const THEME_IDS = ['dawn'] as const;
+export const THEME_IDS = ['dawn', 'ember'] as const;
 
 export type ThemeId = (typeof THEME_IDS)[number];
 

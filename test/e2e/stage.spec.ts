@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { createRoom, makeWav, uploadOne, waitForPlaying } from './helpers';
+import { createRoom, joinRoom, makeWav, uploadOne, waitForPlaying } from './helpers';
 
 /** 让 WebGL 拿不到 context，模拟老设备 / 驱动被禁 */
 async function killWebgl(page: Page) {
@@ -51,11 +51,6 @@ test('画布上带着当前主题，默认是 dawn', async ({ page }) => {
   await createRoom(page, '阿甲');
   await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-theme', 'dawn');
   await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-stage', 'ready');
-});
-
-test('只有一个主题时不显示切换器', async ({ page }) => {
-  await createRoom(page, '阿甲');
-  await expect(page.locator('.theme-switch')).toHaveCount(0);
 });
 
 test('客户端能容忍未知主题，场景退回默认而不是崩掉', async ({ page }) => {
@@ -113,4 +108,66 @@ test('prefers-reduced-motion 下不跑动画，但场景仍在', async ({ page }
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await createRoom(page, '阿甲');
   await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-motion', 'reduced');
+});
+
+test('面板是磨砂玻璃，且自带底色撑住对比度', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  const panel = page.locator('.col > *').first();
+
+  const bg = await panel.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const blur = await panel.evaluate((el) => getComputedStyle(el).backdropFilter);
+
+  // 不能是透明的 —— 对比度必须由面板自己保证，不能指望背后的场景
+  expect(bg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(bg).toMatch(/rgba?\(/);
+  expect(blur).toContain('blur');
+});
+
+test('有两个主题时切换器出现，切过去两端一起变', async ({ browser }) => {
+  const ctxA = await browser.newContext();
+  const ctxB = await browser.newContext();
+  const a = await ctxA.newPage();
+  const b = await ctxB.newPage();
+
+  const code = await createRoom(a, '阿甲');
+  await joinRoom(b, '阿乙', code);
+
+  // 切换器现在必须出现 —— 只有一个主题时它是不渲染的
+  const sw = a.locator('.theme-switch');
+  await expect(sw).toBeVisible();
+  await expect(sw.getByRole('button')).toHaveCount(2);
+
+  await expect(a.locator('canvas.stage-canvas')).toHaveAttribute('data-theme', 'dawn');
+
+  await sw.getByRole('button', { name: '余烬' }).click();
+
+  // 房间级、服务端权威：切的人自己先变，另一端随后跟上
+  for (const page of [a, b]) {
+    await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-theme', 'ember', {
+      timeout: 10_000,
+    });
+  }
+
+  // 重进房间仍然是「余烬」—— 它是落盘的状态，不是本地偏好
+  await a.reload();
+  await expect(a.locator('canvas.stage-canvas')).toHaveAttribute('data-theme', 'ember', {
+    timeout: 15_000,
+  });
+
+  await ctxA.close();
+  await ctxB.close();
+});
+
+test('暗主题下面板的底色仍然不透明', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  await page.locator('.theme-switch').getByRole('button', { name: '余烬' }).click();
+  await expect(page.locator('canvas.stage-canvas')).toHaveAttribute('data-theme', 'ember');
+
+  const bg = await page
+    .locator('.col > *')
+    .first()
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  // 对比度必须由面板自己保证，不能指望背后的场景 —— 这里背后的场景是黑的
+  expect(bg).toMatch(/rgba?\(/);
+  expect(bg).not.toBe('rgba(0, 0, 0, 0)');
 });
