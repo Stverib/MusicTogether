@@ -1,10 +1,7 @@
 # MusicTogether — 项目约定
 
-和别人一起听同一首歌，进度条保持同步。纯网页 / PWA。
+和别人一起听同一首歌，进度条保持同步。纯网页 / PWA，跑在 Cloudflare 上。
 
-> **已放弃部署到 Cloudflare（2026-10-19）**，但**运行时没变** —— 现在由
-> `npm run dev:lan` 在本机跑 `wrangler dev`（Worker + DO + R2 的本地模拟），
-> 其他成员走局域网 / 局域网直连。改的是部署目标，不是架构。
 > 面向人的入口在 `README.md`。完整设计见 `docs/spec.md`，安全威胁模型见
 > `docs/security.md`，实现计划见 `docs/superpowers/plans/`。
 > 本文件只放稳定约定与红线。
@@ -15,7 +12,7 @@
 
     npm run dev            # 前端开发服务器（Vite，5173，/api 代理到 8787）
     npm run dev:worker     # 本地 Worker（wrangler，8787，只绑 localhost）
-    npm run dev:lan        # 局域网/局域网直连：绑 0.0.0.0 并打印可分享的地址
+    npm run dev:lan        # 局域网直连：绑 0.0.0.0 并打印可分享的地址
     npm test               # 单元 + 集成测试
     npm run test:e2e       # Playwright（跑构建产物，8788；用系统 Edge）
     npm run typecheck      # 前端与服务端两套 tsconfig 都检查
