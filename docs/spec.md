@@ -3,7 +3,8 @@
 > 一句话：两个人（或多人）在各自的浏览器里打开同一个网页，A 把自己设备上的歌传上去，所有人听到同一首歌，进度条保持同步。
 
 状态：**已实现**（2026-10-18 起按 `docs/superpowers/plans/2026-10-18-musictogether-mvp.md`
-逐任务落地；测试 180 条单元/集成 + 45 条端到端全绿）。
+逐任务落地；3D 舞台见 `docs/superpowers/plans/2026-10-18-3d-stage.md`。
+测试 208 条单元/集成 + 59 条端到端全绿）。
 
 **部署没做，而且卡在代码之外**：R2 要国际卡，而 `*.workers.dev` 这类共享的
 免费子域在大陆被 DNS 污染后不可达（实测记录见 `memory/progress.md`）。
@@ -27,6 +28,16 @@
    否则 `addAll` 因 404 整体失败、SW 静默装不上。改为运行时顺手缓存。
 5. **`RATE_LIMIT_SCALE`**：仅本地与 E2E 用的限速倍率逃生口（生产不设该变量）。
    本地所有请求来自同一个 IP，不放宽的话测试套件会把自己挡住。
+6. **3D 舞台的 `three` 拆成独立 chunk**，进房间之后才动态加载。Vite 8 走
+   rolldown，`manualChunks` 的对象形式直接报错，`advancedChunks` 也已废弃，
+   所以用的是 `codeSplitting.groups`。首屏只多 3.5 KB。
+7. **律动数据绝不上行**。主路用 `audio.captureStream()` 从旁边接一路出来分析，
+   **不重路由** `audio` 元素的输出；备路 `createMediaElementSource()` 不可撤销，
+   所以销毁时必须让 source 直连 destination，否则整首歌永久静音。
+8. **主题是房间级状态**，落进 `RoomState` 并走 WebSocket 广播；画质档位相反，
+   只存在设备本地，不上行。两者不要混。
+9. **`Member.away` 是客户端上报的**（`visibilitychange`）。最小化窗口、切到别的
+   应用都不会断开 WebSocket，光看连接状态看不出人已经走了。见 §1.2 的 D13。
 
 ---
 

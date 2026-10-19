@@ -193,7 +193,7 @@ export interface Theme {
 ### 5.1 共享白名单 `src/shared/themes.ts`
 
 ```ts
-export const THEME_IDS = ['dawn'] as const;
+export const THEME_IDS = ['dawn', 'ember'] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 export const DEFAULT_THEME: ThemeId = 'dawn';
 

@@ -93,8 +93,9 @@ Durable Object，用 WebSocket Hibernation 维持长连接并广播服务端权�
 
 ### 依赖
 
-13. **新增运行时依赖需要理由。** 当前运行时依赖只有 `preact` 与 `@preact/signals`。
-    大多数需求用标准 Web API 就够了。
+13. **新增运行时依赖需要理由。** 当前运行时依赖是 `preact`、`@preact/signals`
+    与 `three`（3D 舞台，MIT、ESM、核心 0 处 `eval`/`new Function`，所以 CSP
+    一行都不用改）。大多数需求用标准 Web API 就够了 —— `three` 是特例，不是先例。
 
 ### 响应头与静态外壳
 
@@ -128,6 +129,10 @@ Durable Object，用 WebSocket Hibernation 维持长连接并广播服务端权�
 - R2 响应**必须**流式转发，`206` 与 `Content-Range` **必须**手写
 - 客户端**必须**每 25 秒心跳（空闲超时存在但时长未公开）
 - 兜底同步帧**只在播放中**调度，暂停时必须取消 alarm
+- 3D 场景的**音频能量只在本地算，绝不上行**；`three` 必须按需加载
+  （整棵场景树一个 chunk），首屏不许背上它
+- 律动分析的**备路 `createMediaElementSource()` 不可撤销**，销毁时必须把
+  `source → destination` 重新接上，否则整首歌永久静音
 - Service Worker 的预缓存清单**不能**写死带哈希的 JS/CSS 文件名 ——
   `addAll` 会因为 404 整体失败，SW 静默装不上（离线与"添加到主屏幕"一起失效）。
   外壳资源由 fetch 处理器在首次成功请求时顺手缓存

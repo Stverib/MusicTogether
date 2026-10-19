@@ -3,6 +3,50 @@
 > 按用户的分层约定：`CLAUDE.md` 只放稳定约定，进展与决策记录写在这里。
 > 最新的在最上面。
 
+## 2026-10-19
+
+### 3D 舞台：做完了（`feature/3d-stage`）
+
+10 个任务全部落地，外加一个用户中途追加的第二个主题。
+
+- **主题是房间级、服务端权威**：协议加 `theme` 一条，落进 `RoomState` 并广播；
+  白名单在 `src/shared/themes.ts`，服务端与客户端共用一份
+- **两个主题**：「晨光」（粉白 / 浅橙 / 淡墨绿，原定）与「余烬」
+  （深底暖橙 + 发光扭曲线框球，用户给了一张 Three.js 演示截图作为参考）。
+  两个并存、房间级切换，切换器因此第一次出现
+- **黑胶唱片机不属于任何主题**，由 Stage 恒定持有 —— 切主题时它一直在转
+- **律动三层兜底**：主路 `captureStream()`（不重路由 audio 元素的输出）→
+  备路 `createMediaElementSource()` → 程序化曲线。音频能量只在本地算，绝不上行
+- **三条降级路径**都不影响播放：拿不到 WebGL、three 的 chunk 拉不下来、运行期抛异常
+- **画质只降不升**，按实测帧时间判定，档位存在本地、不上行
+- **首屏增长 1.7 KB**（42,798 B → 44,520 B）。整棵场景树走动态 import，
+  是一个独立的 5.6 KB chunk；three 另在 736 KB 的 chunk 里，进房间才拉
+
+**卡过一下的地方**：`memory/progress.md` 里原来记的"`theme.test.ts` 加载失败、
+原因没查清"**不是代码问题** —— 是 RTK 钩子把 `npx vitest` 解析成了另一个
+vitest，集成测试池起不来。用 `npm test` 或
+`node node_modules/vitest/vitest.mjs run` 直接跑是全绿的。**别再信 `npx vitest`。**
+
+### 成员在线状态：离开页面即算离开（用户追加）
+
+`online` 只管"连接还在"，新加一个客户端上报的 `away` 管"页面在不在前台"。
+最小化窗口、切到别的应用、手机按 home 都**不会**断开 WebSocket，只看连接状态
+的话人明明走了点还是绿的。界面上绿点/灰点，点在名字右边。
+
+### 同步精度用例的取样方式（顺带修掉）
+
+`test/e2e/sync.spec.ts` 与 `features.spec.ts` 里几处**顺序**取两端的
+`currentTime`，差值里混进了两次 `page.evaluate` 的往返时间，实测 1.03~1.5 秒，
+正好压在阈值上假红。改成 `Promise.all` 同时取。
+
+### 尚未完成（本节新增）
+
+- **3D 舞台的真机验收**（只有用户能做）：HarmonyOS 浏览器上 WebGL 是否可用；
+  连续播放 30 分钟摸温度、看是否掉帧；锁屏 / 切后台后音频**继续播放**
+  （这是本次唯一可能回退已验收能力的地方）
+- 两个主题的观感只有代码与 E2E 覆盖，**没有人真正看过**。手机上自动降画质
+  的实际效果也没人看过
+
 ## 2026-10-18
 
 ### 已完成
@@ -141,31 +185,15 @@ PWA 装不上 / 没有离线能力；局域网若做了客户端隔离则连不�
 - `cloudflare:test` 的 `env`/`SELF` 已废弃，应迁移到 `cloudflare:workers`
   的 `env` 与 `exports.default.fetch()`
 
-### 未完成的 3D 改造（接手的人先看这个）
-
-分支布局，三个都在，别搞混：
+### 分支布局（2026-10-19 收尾后）
 
 | 分支 | 状态 |
 |------|------|
-| `master` | 稳定版。**没有**成员在线状态、聊天落库、聊天框那三件 |
-| `feature/3d-stage` | 那三件 + Task 1（主题白名单）。工作区干净，typecheck 干净，180 条全绿，构建与起服务都实测过 |
-| `wip/3d-theme-server` | 3D 计划的 Task 2 做到一半，**测试是红的**，停在这里 |
+| `master` | 稳定版。**没有**成员在线状态、聊天落库、聊天框、3D 舞台 |
+| `feature/3d-stage` | 上面全部，3D 计划 11 个任务做完。`wip/3d-theme-server` 已并入并删除 |
 
-**Task 2 卡在哪**：`test/integration/theme.test.ts` 连加载都失败，报
-`Cannot read properties of undefined (reading 'config')`。原因**没查清**。
-两条线索，都不足以定论：
-
-- `import { env } from 'cloudflare:test'` 本身应该没问题 ——
-  `test/integration/media.test.ts` 用的就是它，而且一直是绿的
-- 中途怀疑过"要换成 `cloudflare:workers` 的 env"，但**验证方式本身不可靠**：
-  我用 `ls -t | head -1` 挑 vitest 的原始日志，挑到过期的文件，
-  所以那次"改了还是错"的结论不算数。下次直接从输出里给的确切日志路径读
-
-Task 2 要改的东西都已经在 wip 分支上了，接着调试即可，不用重写：
-`types.ts` 的 `theme`、`protocol.ts` 的两条消息、`room.ts` 的
-`loadFromStorage()` 迁移 + `init` 默认值 + `case 'theme'`，
-外加一个只给测试用的 `/__test_write_state` 端点（DO 没有公网路由，
-Worker 也不转发这个路径，不构成外部攻击面）。
+（原来这里记的"Task 2 卡在 theme.test.ts 加载失败"**是个误判**，
+原因见下面「执行中发现的」里的 `npx vitest` 那条。）
 
 ### 执行中发现的、值得记住的事
 
@@ -200,3 +228,16 @@ Worker 也不转发这个路径，不构成外部攻击面）。
   按行切字段的统计会静默算错（切到体积上）。要统计文件类型就用 Node 或 `find`
 - **RTK 会把 vitest 的输出压成 `PASS (n) FAIL (n)`**，失败原因全看不见。
   它同时留了原始日志，路径在输出里，从那里读 JSON 才拿得到 message
+- **`npx vitest` 不可信。** 它会解析到另一个 vitest，集成测试池起不来，
+  报的是 `Cannot read properties of undefined (reading 'config')` ——
+  看起来像代码坏了，其实是工具链。用 `npm test` 或
+  `node node_modules/vitest/vitest.mjs run`
+- **E2E 跑着的时候不要 `npm run build`。** `emptyOutDir` 会把服务器正在用的
+  `dist/` 整个换掉，表现是随机几条用例"进不了房间"（`header strong` 找不到），
+  而且红的是完全无关的用例。Playwright 的 webServer 只在开跑时构建一次
+- **`page.route` 拦不到 Service Worker 发起的请求。** 想拦某个 chunk 来模拟
+  加载失败，必须 `browser.newContext({ serviceWorkers: 'block' })`，
+  否则那条用例会静默地什么都没测到 —— 一条永远绿的装饰
+- **Vite 8 走 rolldown**：`manualChunks` 的对象形式直接报
+  `TypeError: manualChunks is not a function`，`advancedChunks` 也已废弃，
+  现在叫 `codeSplitting.groups`
