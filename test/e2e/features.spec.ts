@@ -195,12 +195,12 @@ test('断线后自动重连，恢复后两端位置重新对齐', async ({ brows
   await expect(b.locator('.banner')).toBeHidden({ timeout: 30_000 });
   await expect(b.locator('.dot.open')).toBeVisible({ timeout: 15_000 });
 
-  // 关键：重连之后位置要重新对上，而不是各自漂着
+  // 关键：重连之后位置要重新对上，而不是各自漂着。
+  // 两端必须同一时刻取 —— 顺序取的话差值里混进两次 page.evaluate 的往返时间
   await expect
     .poll(
       async () => {
-        const sa = await audioState(a);
-        const sb = await audioState(b);
+        const [sa, sb] = await Promise.all([audioState(a), audioState(b)]);
         return Math.abs(sa.currentTime - sb.currentTime);
       },
       { timeout: 30_000 },
