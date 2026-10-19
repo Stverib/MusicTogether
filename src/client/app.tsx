@@ -8,11 +8,13 @@ import { Player } from './components/Player';
 import { Queue } from './components/Queue';
 import './player'; // 实例化播放器并挂上 store.onPlayback
 import { codeFromUrl, roomLink, shareRoom } from './share';
+import { stage } from './stage/stage';
 import { savedName, savedRoom, store } from './store';
 
 export function App() {
   const room = store.room.value;
   const status = store.status.value;
+  const inRoom = room !== null;
 
   // 分享链接里的房间码只在挂载时读一次。加入之后地址栏会被还原成 /，
   // 要是每次渲染都读，就会把已经清掉的码又读回来。
@@ -37,6 +39,14 @@ export function App() {
       });
     }
   }, []);
+
+  // 场景只在房间里存在。useEffect 必须无条件调用，所以依赖是一个布尔值
+  // 而不是 room 本身 —— 后者每次快照更新都是新对象，会把场景反复拆了重建。
+  useEffect(() => {
+    if (inRoom) stage.mount();
+    else stage.unmount();
+    return () => stage.unmount();
+  }, [inRoom]);
 
   if (!room) return <Join initialCode={linkedCode ?? ''} />;
 

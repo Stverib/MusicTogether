@@ -408,8 +408,27 @@ input::placeholder {
    房间外壳
    ============================================================ */
 
+/* 场景画布铺满视口，待在 UI 底下。用 fixed 是因为它挂在 body 上，
+   不在 #app 里 —— 这样 Preact 永远不会碰它。
+
+   必须给 .room 一个 z-index：画布是后 append 到 body 的，光靠 position:
+   relative 压不住它，场景会盖在界面上。 */
+.stage-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  pointer-events: none;
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+}
+
 .room {
   position: relative;
+  z-index: 1;
   max-width: 1080px;
   margin: 0 auto;
   padding: 16px 18px 56px;
