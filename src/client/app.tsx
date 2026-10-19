@@ -9,11 +9,10 @@ import { Queue } from './components/Queue';
 import './player'; // 实例化播放器并挂上 store.onPlayback
 import { codeFromUrl, roomLink, shareRoom } from './share';
 import { THEME_IDS, type ThemeId } from '../shared/themes';
-import { stage } from './stage/stage';
 import { savedName, savedRoom, store } from './store';
 
 /** 主题的中文名。加主题时在这里补一行 */
-const THEME_NAMES: Record<ThemeId, string> = { dawn: '晨光' };
+const THEME_NAMES: Record<ThemeId, string> = { dawn: '晨光', ember: '余烬' };
 
 export function App() {
   const room = store.room.value;
@@ -44,12 +43,25 @@ export function App() {
     }
   }, []);
 
-  // 场景只在房间里存在。useEffect 必须无条件调用，所以依赖是一个布尔值
-  // 而不是 room 本身 —— 后者每次快照更新都是新对象，会把场景反复拆了重建。
+  // 场景只在房间里存在。整棵场景树（stage + 画质 + 律动 + 主题）走**动态
+  // import** —— 首屏一个字节都不背它，进房间之后才拉一个 chunk 下来。
+  //
+  // 依赖是一个布尔值而不是 room 本身：后者每次快照更新都是新对象，
+  // 会把场景反复拆了重建。
   useEffect(() => {
-    if (inRoom) stage.mount();
-    else stage.unmount();
-    return () => stage.unmount();
+    if (!inRoom) return;
+    let cancelled = false;
+    let mounted: { unmount(): void } | null = null;
+    void import('./stage/stage').then((m) => {
+      // 还没拉下来就已经离开房间了，那就别挂
+      if (cancelled) return;
+      mounted = m.stage;
+      m.stage.mount();
+    });
+    return () => {
+      cancelled = true;
+      mounted?.unmount();
+    };
   }, [inRoom]);
 
   if (!room) return <Join initialCode={linkedCode ?? ''} />;
