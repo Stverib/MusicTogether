@@ -5440,9 +5440,9 @@ git commit -m "test(security): e2e regression suite and manual penetration check
 - [ ] 在 `docs/spec.md` 顶部把状态改为「已实现」并记录与规格的偏差
 - [ ] 写 `CLAUDE.md`（≤100 行）：只放稳定的项目约定 —— 常用命令、架构一句话、以及本项目的红线（协议纪律、必须流式、必须心跳、Cookie 鉴权的原因）
 - [ ] 部署：`wrangler secret put SESSION_SECRET` → `npm run deploy`
-- [ ] 【人工验收】在 HarmonyOS 手机与 Android 手机上各跑一遍完整流程
-      —— HarmonyOS 端已完成（2026-10-18，局域网 `wrangler dev`，手机上传、两端都能听到）；
-      Android 端与 PWA 安装 / 锁屏媒体控制仍未验证（后者需要 HTTPS）
+- [x] 【人工验收】在 HarmonyOS 手机与 Android 手机上各跑一遍完整流程
+      —— 两端均已完成（HarmonyOS 2026-10-18，Android 2026-10-20）；
+      PWA 安装 / 锁屏媒体控制仍未验证（需要 HTTPS）
 
 ---
 

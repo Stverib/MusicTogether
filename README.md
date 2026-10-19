@@ -125,7 +125,7 @@ PWA、Service Worker 与安全上下文相关的 Web API 都依赖它。
 - **桌面 Chrome / Edge**：完整支持，可使用目录选择 API
 - **HarmonyOS 浏览器（ArkWeb）**：已验证音频播放、seek、文件夹选择、
   锁屏与切后台后继续播放
-- **Android**：预期可用，尚未单独验证
+- **Android**：已验证可正常访问与播放
 - **PWA 安装与 Service Worker**：需要 HTTPS
 
 ## 项目结构
