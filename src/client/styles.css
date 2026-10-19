@@ -438,8 +438,14 @@ input::placeholder {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 2px 18px;
   font-size: 14px;
+  /* 场景在背后，标题条得自己撑住底色 —— 不能指望背景够暗或够亮 */
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: var(--r-pill);
+  padding: 7px 12px;
+  margin-bottom: 16px;
 }
 
 /* 房间码 —— 这一页唯一的"票据"，用等宽宽字距 */
@@ -558,6 +564,42 @@ input::placeholder {
   border-radius: var(--r);
   padding: 16px 16px 14px;
   box-shadow: var(--shadow-sm);
+}
+
+/* 浮在全屏场景上的磨砂层。
+   底色不透明度给足，**对比度由面板自己保证** —— 背后的场景可能是亮的
+   （晨光）也可能是暗的（余烬），指望它帮忙就一定有一边读不清。 */
+.col > * {
+  backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.col > .panel {
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+/* 播放器那张橙卡片仍是全屏最亮最饱和的一块，只是改成半透 ——
+   背后的场景透过来，整页才是一体的，而不是贴了张不透明的纸 */
+.col > .player {
+  background:
+    radial-gradient(130% 115% at 10% -12%, rgba(255, 255, 255, 0.5), transparent 58%),
+    linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--ember-200) 84%, transparent) 0%,
+      color-mix(in srgb, var(--ember-300) 82%, transparent) 46%,
+      color-mix(in srgb, var(--ember-400) 80%, transparent) 100%
+    );
+}
+
+/* 不支持 backdrop-filter 时退回更高的不透明度，观感差一点但一定看得清 */
+@supports not (backdrop-filter: blur(1px)) {
+  .col > .panel {
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+  }
+  .room > header {
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+  }
+  .col > .player {
+    background: var(--card-grad);
+  }
 }
 
 /* ============================================================
