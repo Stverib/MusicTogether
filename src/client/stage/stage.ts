@@ -85,14 +85,18 @@ class Stage {
     camera.lookAt(0, 0, 0);
 
     const resize = () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
+      // 跟着 canvas 自己的盒子走：窄屏时它只占顶部一块，不再铺满视口
+      const w = canvas.clientWidth || window.innerWidth;
+      const h = canvas.clientHeight || window.innerHeight;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
     resize();
     window.addEventListener('resize', resize);
+    // 移动端地址栏收起时窗口不一定触发 resize，但 canvas 的 CSS 高度会变
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(canvas);
 
     // 订阅房间状态。主题是房间级的，切的时候新旧两个一起在场做交叉淡入淡出
     const { THEME_FACTORIES } = await import('./themes');
@@ -244,6 +248,7 @@ class Stage {
 
     this.cleanup = () => {
       window.removeEventListener('resize', resize);
+      resizeObserver.disconnect();
       removeEventListener('pointerdown', armAnalyser);
       source?.dispose();
       source = null;
