@@ -278,7 +278,7 @@ currentPosition(now) = isPlaying ? positionMs + (now - anchorAt) : positionMs
 
 - **状态变化时**（play / pause / seek / 切歌）：`anchorAt = serverNow`，`positionMs = 新位置`，`seq++`，广播给全房间（含发起者）
 - **周期性兜底**：每 30 秒广播一次带 `serverNow` 的同步帧
-- **客户端校正**：收到同步帧后算 `target = positionMs + (serverNow + rtt/2 - anchorAt)`；`|audio.currentTime - target| > 2000ms` 才 `seek`
+- **客户端校正**：收到同步帧后算 `target = positionMs + (serverNow + rtt/2 - anchorAt)`；`|audio.currentTime - target| > 2000ms` 才 `seek`（避免频繁 seek 产生爆音）。**起播时**（`playing` 事件）用 500ms 的更紧阈值再对齐一次 —— 起播本身可能比锚点晚一秒以上，2 秒的周期阈值会把这个延迟固化成偏差
 
 **为什么这样够用**：`<audio>` 的播放速率由声卡晶振决定（±50 ppm），两端从同一位置同时起播后，一首 4 分钟的歌累计漂移也只有几十毫秒。唯一需要校正的是初始 seek 的误差与中途加入的偏差。所以**不需要时钟对齐、不需要变速追帧**。
 

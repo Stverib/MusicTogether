@@ -1,8 +1,14 @@
-import { positionAt, shouldResync } from '../shared/playback';
+import { RESYNC_THRESHOLD_MS, positionAt, shouldResync } from '../shared/playback';
 import type { Playback } from '../shared/types';
 import { cacheTrack, getCachedUrl } from './cache';
 import { store } from './store';
 import { planPlayback, streamUrl } from './sync';
+
+/**
+ * 起播可能比锚点晚（主线程忙时能到一秒以上），而周期校偏的阈值是 2 秒，
+ * 会留下一个接近 2 秒的固定偏差。起播时用更紧的阈值单独对齐一次。
+ */
+const START_ALIGN_MS = 500;
 
 /**
  * 同步播放器。
@@ -28,6 +34,7 @@ export class Player {
     document.body.appendChild(this.audio);
 
     this.audio.addEventListener('timeupdate', () => this.correctDrift());
+    this.audio.addEventListener('playing', () => this.correctDrift(START_ALIGN_MS));
     this.audio.addEventListener('ended', () => store.send({ type: 'next' }));
     this.audio.addEventListener('error', () => {
       if (this.currentTrackId) console.warn('播放失败', this.audio.error?.code);
@@ -37,14 +44,14 @@ export class Player {
     this.setupMediaSession();
   }
 
-  /** 播放过程中的持续校偏。只在播放中才有意义，且阈值 2 秒。 */
-  private correctDrift(): void {
+  /** 播放过程中的持续校偏。默认阈值 2 秒；起播时传入更紧的阈值。 */
+  private correctDrift(thresholdMs = RESYNC_THRESHOLD_MS): void {
     const playback = store.room.value?.playback;
     if (!playback?.isPlaying || !this.lastServerNow) return;
 
     const elapsed = performance.now() - this.lastReceivedAt;
     const target = positionAt(playback, this.lastServerNow + this.rttMs / 2 + elapsed);
-    if (shouldResync(this.audio.currentTime * 1000, target)) {
+    if (shouldResync(this.audio.currentTime * 1000, target, thresholdMs)) {
       this.audio.currentTime = target / 1000;
     }
   }
