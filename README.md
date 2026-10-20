@@ -122,7 +122,7 @@ npm test                # 单元 + 集成（真实 workerd + Durable Object + R2
 npm run test:e2e        # Playwright，跑构建产物，起在 8788
 ```
 
-当前覆盖：单元 + 集成 208 条、端到端 59 条，全部通过。
+当前覆盖：单元 + 集成 205 条、端到端 59 条，全部通过。
 
 E2E 使用系统 Edge（`channel: 'msedge'`），不下载 Playwright 自带浏览器。
 `.dev.vars` 中的 `RATE_LIMIT_SCALE` 是给本地与 E2E 用的限速逃生口 ——
