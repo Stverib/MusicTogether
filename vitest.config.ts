@@ -35,6 +35,9 @@ export default defineConfig({
           name: 'integration',
           include: ['test/integration/**/*.test.ts'],
           sequence: { concurrent: false },
+          // workerd 冷启动叠加首次 R2 上传会超过默认的 5 秒；集成测试串行跑，
+          // 放宽这一层不会掩盖真正的死循环（单测仍用默认值）
+          testTimeout: 15_000,
         },
       },
     ],
