@@ -26,7 +26,9 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8787',
-        changeOrigin: true,
+        // 保留浏览器的 Host，否则 Worker 看到的 request origin 是 8787，
+        // 而 WS 的 Origin 仍是 5173，会被 originAllowed 拒成 403
+        changeOrigin: false,
         ws: true,
       },
     },
