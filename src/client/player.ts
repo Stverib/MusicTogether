@@ -38,7 +38,7 @@ export class Player {
       if (this.currentTrackId) console.warn('播放失败', this.audio.error?.code);
     });
 
-    store.onPlayback = (playback, serverNow) => this.apply(playback, serverNow);
+    store.onPlayback = (playback, serverNow, align) => this.apply(playback, serverNow, align);
     this.setupMediaSession();
   }
 
@@ -54,7 +54,8 @@ export class Player {
     }
   }
 
-  apply(playback: Playback, serverNow: number): void {
+  /** `align` 用于进房/重连的权威快照：偏差容忍度收紧到 500ms */
+  apply(playback: Playback, serverNow: number, align = false): void {
     this.lastServerNow = serverNow;
     this.lastReceivedAt = performance.now();
 
@@ -62,6 +63,7 @@ export class Player {
       { trackId: this.currentTrackId, currentTime: this.audio.currentTime },
       playback,
       serverNow,
+      align ? START_ALIGN_MS : RESYNC_THRESHOLD_MS,
     );
 
     if (plan.action === 'load') {

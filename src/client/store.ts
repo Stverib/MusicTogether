@@ -77,7 +77,7 @@ class RoomStore {
    * 由 player.ts 注册。播放锚点到达时同步调用 ——
    * 播放器必须在 room 更新之后再动，所以这里是回调而不是 signal。
    */
-  onPlayback: ((playback: Playback, serverNow: number) => void) | null = null;
+  onPlayback: ((playback: Playback, serverNow: number, align?: boolean) => void) | null = null;
 
   async createRoom(name: string): Promise<string> {
     const res = await fetch('/api/rooms', { method: 'POST' });
@@ -139,9 +139,9 @@ class RoomStore {
         this.chat.value = (m.chat as ChatMessage[] | undefined) ?? [];
         this.chatTotal.value = typeof m.chatTotal === 'number' ? m.chatTotal : this.chat.value.length;
         // 快照是权威的，直接用它对齐播放器 —— 中途进房/重连后立即就能对上，
-        // 不必等下一次周期性同步帧
+        // 不必等下一次周期性同步帧。`align` 让播放器用更紧的阈值。
         if (typeof m.serverNow === 'number') {
-          this.onPlayback?.(room.playback, m.serverNow);
+          this.onPlayback?.(room.playback, m.serverNow, true);
         }
         break;
       }

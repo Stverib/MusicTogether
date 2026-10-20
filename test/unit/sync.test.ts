@@ -36,6 +36,12 @@ describe('planPlayback', () => {
     expect(planPlayback(cur('t1', 28.0), anchor({ positionMs: 30_000 }), T0).action).toBe('none');
   });
 
+  it('进房/重连的快照用更紧的阈值：1 秒偏差也要 seek', () => {
+    const plan = planPlayback(cur('t1', 4.0), anchor({ positionMs: 5_000 }), T0, 500);
+    expect(plan.action).toBe('seek');
+    expect(plan.positionMs).toBe(5_000);
+  });
+
   it('暂停状态下目标位置恒定，不随 serverNow 推进', () => {
     const plan = planPlayback(
       cur('t1', 20),
