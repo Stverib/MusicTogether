@@ -81,7 +81,7 @@ export function App() {
         {/* 房间码单独包一层好上等宽字体。textContent 仍是「房间 XXXX」，
             测试与复制行为都不变 */}
         <strong>
-          房间 <span class="code">{room.code}</span>
+          <span class="label">房间</span> <span class="code">{room.code}</span>
         </strong>
         <span class={`dot ${status}`} title={status} />
         <span class="grow" />

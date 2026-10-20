@@ -1078,6 +1078,37 @@ input::placeholder {
   }
   /* 头栏留在舞台上方；这段下边距把第一张面板推到舞台下面 */
   .room > header {
+    gap: 6px;
+    padding: 6px 10px;
+    /* 极窄屏（320px 档）一行放不下时折成两行，也别把「晨光」挤成竖排 */
+    flex-wrap: wrap;
+    row-gap: 4px;
     margin-bottom: max(12px, calc(var(--stage-h) - 64px));
+  }
+  /* 窄屏放不下「房间」两个字，折行后头栏会顶到舞台中间；房间码本身够清楚 */
+  .room > header strong .label {
+    display: none;
+  }
+  /* 四个控件挤一行，默认内边距会把按钮文字压成单字一列 */
+  .room > header .theme-switch {
+    flex: none;
+  }
+  .room > header .theme-switch button {
+    padding: 3px 7px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .room > header > button.icon {
+    flex: none;
+    padding: 5px 6px;
+    white-space: nowrap;
+  }
+}
+
+/* 320px 档实在塞不下：主题切换独占一行，别让「离开」孤零零掉到第二行 */
+@media (max-width: 359px) {
+  .room > header .theme-switch {
+    order: 1;
+    margin-left: auto;
   }
 }
