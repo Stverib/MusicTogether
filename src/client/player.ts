@@ -20,8 +20,6 @@ export class Player {
   readonly audio: HTMLAudioElement;
 
   private currentTrackId: string | null = null;
-  /** 最近一次收到服务端帧时的往返估算，用来抵消一半的网络延迟 */
-  private rttMs = 0;
   private lastServerNow = 0;
   private lastReceivedAt = 0;
 
@@ -50,18 +48,13 @@ export class Player {
     if (!playback?.isPlaying || !this.lastServerNow) return;
 
     const elapsed = performance.now() - this.lastReceivedAt;
-    const target = positionAt(playback, this.lastServerNow + this.rttMs / 2 + elapsed);
+    const target = positionAt(playback, this.lastServerNow + elapsed);
     if (shouldResync(this.audio.currentTime * 1000, target, thresholdMs)) {
       this.audio.currentTime = target / 1000;
     }
   }
 
   apply(playback: Playback, serverNow: number): void {
-    // 用两次帧到达的间隔估算单程延迟，让目标位置不系统性地落后
-    if (this.lastServerNow) {
-      const sample = performance.now() - this.lastReceivedAt;
-      if (sample < 5000) this.rttMs = sample;
-    }
     this.lastServerNow = serverNow;
     this.lastReceivedAt = performance.now();
 
@@ -69,7 +62,6 @@ export class Player {
       { trackId: this.currentTrackId, currentTime: this.audio.currentTime },
       playback,
       serverNow,
-      this.rttMs,
     );
 
     if (plan.action === 'load') {
