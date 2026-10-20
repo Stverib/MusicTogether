@@ -8,11 +8,16 @@ import { Player } from './components/Player';
 import { Queue } from './components/Queue';
 import './player'; // 实例化播放器并挂上 store.onPlayback
 import { codeFromUrl, roomLink, shareRoom } from './share';
+import { THEME_IDS, type ThemeId } from '../shared/themes';
 import { savedName, savedRoom, store } from './store';
+
+/** 主题的中文名。加主题时在这里补一行 */
+const THEME_NAMES: Record<ThemeId, string> = { dawn: '晨光', ember: '余烬' };
 
 export function App() {
   const room = store.room.value;
   const status = store.status.value;
+  const inRoom = room !== null;
 
   // 分享链接里的房间码只在挂载时读一次。加入之后地址栏会被还原成 /，
   // 要是每次渲染都读，就会把已经清掉的码又读回来。
@@ -38,6 +43,27 @@ export function App() {
     }
   }, []);
 
+  // 场景只在房间里存在。整棵场景树（stage + 画质 + 律动 + 主题）走**动态
+  // import** —— 首屏一个字节都不背它，进房间之后才拉一个 chunk 下来。
+  //
+  // 依赖是一个布尔值而不是 room 本身：后者每次快照更新都是新对象，
+  // 会把场景反复拆了重建。
+  useEffect(() => {
+    if (!inRoom) return;
+    let cancelled = false;
+    let mounted: { unmount(): void } | null = null;
+    void import('./stage/stage').then((m) => {
+      // 还没拉下来就已经离开房间了，那就别挂
+      if (cancelled) return;
+      mounted = m.stage;
+      m.stage.mount();
+    });
+    return () => {
+      cancelled = true;
+      mounted?.unmount();
+    };
+  }, [inRoom]);
+
   if (!room) return <Join initialCode={linkedCode ?? ''} />;
 
   const onShare = async () => {
@@ -59,6 +85,21 @@ export function App() {
         </strong>
         <span class={`dot ${status}`} title={status} />
         <span class="grow" />
+        {/* 只有一个主题时切换器没有意义，不渲染 —— 别摆一个点了没反应的按钮 */}
+        {THEME_IDS.length > 1 && (
+          <div class="theme-switch">
+            {THEME_IDS.map((id) => (
+              <button
+                key={id}
+                class={id === room.theme ? 'on' : ''}
+                title={`切换到${THEME_NAMES[id]}`}
+                onClick={() => store.setTheme(id)}
+              >
+                {THEME_NAMES[id]}
+              </button>
+            ))}
+          </div>
+        )}
         <button class="icon" title="分享房间" onClick={() => void onShare()}>
           分享
         </button>

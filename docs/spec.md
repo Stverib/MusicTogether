@@ -3,8 +3,8 @@
 > 一句话：两个人（或多人）在各自的浏览器里打开同一个网页，A 把自己设备上的歌传上去，所有人听到同一首歌，进度条保持同步。
 
 状态：**已实现**（2026-10-18 起按 `docs/superpowers/plans/2026-10-18-musictogether-mvp.md`
-逐任务落地）。测试与部署方式见根目录 `README.md`。HarmonyOS 与 Android
-真机均验证通过。
+逐任务落地；3D 舞台见 `docs/superpowers/plans/2026-10-18-3d-stage.md`）。
+测试与部署方式见根目录 `README.md`。HarmonyOS 与 Android 真机均验证通过。
 
 ### 实现过程中与规格的偏差
 
@@ -23,6 +23,16 @@
    否则 `addAll` 因 404 整体失败、SW 静默装不上。改为运行时顺手缓存。
 5. **`RATE_LIMIT_SCALE`**：仅本地与 E2E 用的限速倍率逃生口（生产不设该变量）。
    本地所有请求来自同一个 IP，不放宽的话测试套件会把自己挡住。
+6. **3D 舞台的 `three` 拆成独立 chunk**，进房间之后才动态加载。Vite 8 走
+   rolldown，`manualChunks` 的对象形式直接报错，`advancedChunks` 也已废弃，
+   所以用的是 `codeSplitting.groups`。首屏只多 1.7 KB。
+7. **律动数据绝不上行**。主路用 `audio.captureStream()` 从旁边接一路出来分析，
+   **不重路由** `audio` 元素的输出；备路 `createMediaElementSource()` 不可撤销，
+   所以销毁时必须让 source 直连 destination，否则整首歌永久静音。
+8. **主题是房间级状态**，落进 `RoomState` 并走 WebSocket 广播；画质档位相反，
+   只存在设备本地，不上行。两者不要混。
+9. **`Member.away` 是客户端上报的**（`visibilitychange`）。最小化窗口、切到别的
+   应用都不会断开 WebSocket，光看连接状态看不出人已经走了。见 §1.2 的 D13。
 
 ---
 
@@ -33,7 +43,7 @@
 | # | 决策点 | 结论 |
 |---|--------|------|
 | D1 | 音源模型 | A 上传 → 云端中转 → B 下载成缓存 → 各自播放本地副本，同步的是时间轴与播放状态。**不是**实时音频推流。 |
-| D2 | 交付形态 | 纯网页 / PWA。一套代码同时跑鸿蒙与安卓，浏览器直达，不经过任何应用商店。 |
+| D2 | 交付形态 | 纯网页 / PWA。一套代码同时跑 HarmonyOS 与 Android，浏览器直达，不经过任何应用商店。 |
 | D3 | 服务端 | Cloudflare Serverless 全家桶：Workers（API/静态资源）+ Durable Objects（房间）+ R2（文件）。 |
 | D4 | 播放控制权 | 平权 + 服务端权威。任何人都能播/停/切/拖，操作发给服务端，服务端盖时间戳后广播。 |
 | D5 | 同步精度 | 粗同步（±1 秒即可）。不做时钟对齐、不做变速追帧。 |
@@ -50,6 +60,34 @@
 - **房间码为 6 位字母数字**（见 §4.1），不是 6 位纯数字——后者只有 100 万种可能，可被枚举。
 - **不解析 ID3 标签**：列表直接显示文件名。若日后需要，再引入元数据解析。
 - **歌曲文件经 Worker 代理提供**，不开放 R2 公开桶，以保证链接不可被外部猜测访问。
+
+### 1.2 实现之后的决策变更
+
+以下三条是 2026-10-18 实现完成、用户实际用过之后改的。**它们推翻了上面的原决策**，
+记在这里而不是悄悄改掉——原决策是逐条确认过的，变更本身也需要留痕。
+
+| # | 决策点 | 原结论 | 新结论 | 为什么改 |
+|---|--------|--------|--------|----------|
+| D11 | 成员离线后的去留 | 断开即从成员列表移除 | **保留在列表里，标 `online: false`** | "已离开"这个状态在原设计里根本不存在。一起听歌时看得见其他成员刚走，比看得见他凭空消失更像一个房间 |
+| D12 | 聊天是否落库 | **不落库**，只广播给在线成员，重连后看不到历史 | **落库，全部保留** | 用过之后发现"聊天记录一刷新就没了"是真的难受 |
+| D13 | "在线"的判据 | 连接还在（WebSocket 未断开） | **连接还在且页面在前台**，另加一个客户端上报的 `away` | 最小化窗口、切到别的应用、手机按 home 都**不会**断开 WebSocket。只看连接状态的话，人明明走了，点还是绿的 |
+
+D11、D12 与 D13 的实现细节：
+
+- **D11**：同一 `clientId` 重连翻回在线，不新增成员。列表上限 20 人，
+  **只淘汰离线的最老的**——否则第三十一个人进来会把正在听歌的人踢出列表。
+- **D12**：聊天**不放进 `RoomState`**，单独用一个存储键。原因是 `RoomState`
+  每次播放/暂停/切歌都会整个 `save()` 一遍，聊天并进去的话每次点暂停都要把
+  整份聊天记录重写一次存储，而它只会越来越大。快照只带**最近 200 条**——
+  WebSocket 单帧有 1 MiB 上限，全量序列化迟早会撞上去，那是硬失败。
+  更早的走 `GET /api/rooms/:code/chat?before=<id>` 按需取。
+- **D13**：`Member` 因此有两个标志，不是一个。`online` 是"连接还在"，
+  `away` 是"页面不在前台"，由客户端在 `visibilitychange` 时经
+  `{ type: 'presence', away }` 上报。**两者都假**才是界面上那个灰点。
+  重连时服务端把 `away` 翻回 false（连接还在就说明页面活着），
+  客户端在 `onopen` 立刻补报一次真实值，所以后台重连不会停在错的状态上。
+  上报是**幂等**的：真机上可见性事件会成串地来，重复上报不产生广播。
+  服务端只收布尔值——`away: "yes"` 这种隐式真值一律拒掉。
 
 ---
 
@@ -196,7 +234,15 @@ type Track = {
   addedAt: number;
 };
 
-type Member = { clientId: string; name: string; joinedAt: number };
+type Member = {
+  clientId: string;
+  name: string;
+  joinedAt: number;
+  /** 断开连接后不从列表里删掉，只翻成 false（决策 D11） */
+  online: boolean;
+  /** 页面不在前台（决策 D13）。客户端上报，与 online 是两件事 */
+  away: boolean;
+};
 
 type Playback = {
   trackId: string | null;
@@ -256,26 +302,32 @@ currentPosition(now) = isPlaying ? positionMs + (now - anchorAt) : positionMs
 | `dequeue` | `{trackId}` | 从队列移除 |
 | `reorder` | `{queue: string[]}` | 重排队列 |
 | `chat` | `{text}` | 聊天（≤ 500 字） |
+| `presence` | `{away: boolean}` | 页面是否在前台（决策 D13）。幂等，重复上报不广播 |
+| `theme` | `{theme}` | 换房间主题。必须过 `isThemeId()` 白名单，同值幂等 |
 | `ping` | `{}` | 保活 |
 
 ### 6.2 服务端 → 客户端
 
 | type | 载荷 | 说明 |
 |------|------|------|
-| `state` | `{room, serverNow}` | 连接/重连后的完整快照 |
+| `state` | `{room, chat, chatTotal, serverNow}` | 连接/重连后的完整快照。`chat` 只带最近 `CHAT_HISTORY_PAGE`（200）条，`chatTotal` 是总数 |
 | `playback` | `{playback, serverNow}` | 锚点变化 |
 | `sync` | `{playback, serverNow}` | 30 秒兜底同步帧（同结构，语义不同） |
 | `queue` | `{queue, epoch}` | 队列变化 |
 | `tracks` | `{tracks, epoch}` | 曲目表变化 |
-| `members` | `{members}` | 成员变化 |
-| `chat` | `{from, name, text, at}` | 聊天消息（**不持久化**） |
+| `members` | `{members}` | 成员变化（在线/离开、主题无关） |
+| `chat` | `ChatMessage` | 聊天消息（**已落库**，决策 D12） |
+| `theme` | `{theme}` | 房间主题变化 |
 | `error` | `{message}` | |
 
 **每一帧带播放状态的都**必须**带 `serverNow`**：客户端要拿它把锚点换算成
 "现在应该播到哪儿"。`state` 快照漏掉它会很难查 —— 中途进房的人位置是对的，
 但要干等到下一次兜底同步帧（最多 30 秒）才出声。
 
-**聊天不落库**：只广播给当前在线成员，重连后看不到历史。
+**聊天会落库**（决策 D12，推翻了原来的"不落库"）：消息存在 DO 的独立存储键里，
+一条不删；`state` 快照只带最近 `CHAT_HISTORY_PAGE`（200）条，
+更早的走 `GET /api/rooms/:code/chat?before=<id>` 按需取。
+快照不带全量的原因是硬的：WebSocket 单帧有 1 MiB 上限。
 
 ### 6.3 连接保活与额度纪律
 
@@ -302,6 +354,7 @@ Cloudflare 会在一段**未公开的**空闲时长后掐断 WebSocket，且网�
 | `POST` | `/api/rooms` | 创建房间，返回 `{code}` |
 | `POST` | `/api/rooms/:code/join` | 加入，返回 `{clientId, room}` 并种 Cookie |
 | `GET` | `/api/rooms/:code/state` | 拉取快照（WS 之外的兜底） |
+| `GET` | `/api/rooms/:code/chat` | 取更早的聊天历史，`?before=<消息 id>` 为游标；不带游标就是最新一页 |
 | `POST` | `/api/rooms/:code/tracks` | 登记元数据，返回 `{trackId, uploadUrl}` |
 | `PUT` | `/api/rooms/:code/tracks/:id/blob` | 上传文件字节 → R2 |
 | `GET` | `/api/rooms/:code/tracks/:id/stream` | 流式读取，支持 `Range`，返回 206 |
@@ -390,7 +443,8 @@ wrangler deploy
 
 ## 12. 免费额度与成本（2026-10-18 核实）
 
-全部来自 Cloudflare 官方文档，非记忆。
+> 本节记录这套栈在 Cloudflare 免费额度下的真实边界，供部署与容量评估参考。
+> 下面每一条都来自 Cloudflare 官方文档，非记忆。
 
 ### 12.1 够不够用
 

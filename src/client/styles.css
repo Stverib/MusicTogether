@@ -42,6 +42,11 @@
   --ember-ink: #3a2412;
   --glow: rgba(242, 123, 60, 0.16);
 
+  /* 成员在线状态那一点绿。刻意不跟主色走 —— 橙色在这套界面里到处都是，
+     用它当状态色，"在线"会淹没在按钮和强调里读不出来。
+     对 --surface（#fffdfa）是 4.8:1，对 --bg（#fff8f2）是 4.6:1，都过 AA */
+  --online: #2e7d51;
+
   /* 播放器那张橙卡片。刻意不用深色 —— 它靠"最亮最饱和"当主角，
      不靠"最暗" */
   --card-grad:
@@ -403,8 +408,27 @@ input::placeholder {
    房间外壳
    ============================================================ */
 
+/* 场景画布铺满视口，待在 UI 底下。用 fixed 是因为它挂在 body 上，
+   不在 #app 里 —— 这样 Preact 永远不会碰它。
+
+   必须给 .room 一个 z-index：画布是后 append 到 body 的，光靠 position:
+   relative 压不住它，场景会盖在界面上。 */
+.stage-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  pointer-events: none;
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+}
+
 .room {
   position: relative;
+  z-index: 1;
   max-width: 1080px;
   margin: 0 auto;
   padding: 16px 18px 56px;
@@ -414,8 +438,14 @@ input::placeholder {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 2px 18px;
   font-size: 14px;
+  /* 场景在背后，标题条得自己撑住底色 —— 不能指望背景够暗或够亮 */
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: var(--r-pill);
+  padding: 7px 12px;
+  margin-bottom: 16px;
 }
 
 /* 房间码 —— 这一页唯一的"票据"，用等宽宽字距 */
@@ -458,6 +488,30 @@ input::placeholder {
 }
 .dot.closed {
   background: var(--danger);
+}
+
+/* 房间主题切换器。房间级、平权 —— 跟播放/暂停一样，谁都能点 */
+.theme-switch {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.theme-switch button {
+  border: none;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.theme-switch button.on {
+  background: var(--ember);
+  color: var(--ember-ink);
 }
 
 .banner {
@@ -510,6 +564,42 @@ input::placeholder {
   border-radius: var(--r);
   padding: 16px 16px 14px;
   box-shadow: var(--shadow-sm);
+}
+
+/* 浮在全屏场景上的磨砂层。
+   底色不透明度给足，**对比度由面板自己保证** —— 背后的场景可能是亮的
+   （晨光）也可能是暗的（余烬），指望它帮忙就一定有一边读不清。 */
+.col > * {
+  backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.col > .panel {
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+/* 播放器那张橙卡片仍是全屏最亮最饱和的一块，只是改成半透 ——
+   背后的场景透过来，整页才是一体的，而不是贴了张不透明的纸 */
+.col > .player {
+  background:
+    radial-gradient(130% 115% at 10% -12%, rgba(255, 255, 255, 0.5), transparent 58%),
+    linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--ember-200) 84%, transparent) 0%,
+      color-mix(in srgb, var(--ember-300) 82%, transparent) 46%,
+      color-mix(in srgb, var(--ember-400) 80%, transparent) 100%
+    );
+}
+
+/* 不支持 backdrop-filter 时退回更高的不透明度，观感差一点但一定看得清 */
+@supports not (backdrop-filter: blur(1px)) {
+  .col > .panel {
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+  }
+  .room > header {
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+  }
+  .col > .player {
+    background: var(--card-grad);
+  }
 }
 
 /* ============================================================
@@ -729,6 +819,26 @@ input::placeholder {
   text-align: right;
 }
 
+/* 成员状态点。颜色只是辅助 —— 每行右侧同时写着"在线 / 已离开"，
+   色觉障碍的人不靠这个点也能读出来 */
+.presence {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  /* 灰点：已离开。也可能是"连接断了"或"页面切到后台了"，对看的人是一回事 */
+  background: var(--ink-3);
+}
+.presence.on {
+  /* 绿点：在线。用绿而不是暖橙 —— 橙色是这套界面的主色，
+     拿主色当状态色会让"在线"淹没在按钮和强调里 */
+  background: var(--online);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--online) 22%, transparent);
+}
+.list li.away .name {
+  color: var(--ink-3);
+}
+
 /* 正在播的那一行：序号换成跳动的电平条 */
 .bars {
   flex: none;
@@ -777,11 +887,31 @@ input::placeholder {
   list-style: none;
   margin: 0 0 12px;
   padding: 0;
-  max-height: 260px;
+  /* 固定高度而不是 max-height：消息少的时候框也是这么高，
+     整个面板不会随着聊天忽长忽短，右边的成员/缓存面板也就不会被顶来顶去 */
+  height: 260px;
   overflow-y: auto;
+  /* 滚到头之后别把滚动传给页面 —— 手机上滑历史很容易一滑就整页跟着动 */
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 9px;
+}
+.chat .load-older {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.chat .load-older:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .chat .messages li {
   display: flex;

@@ -1,12 +1,11 @@
 import { computed, signal } from '@preact/signals';
-import type { Playback, RoomState, Track } from '../shared/types';
+import { isThemeId, themeOrDefault, type ThemeId } from '../shared/themes';
+import type { ChatMessage, Playback, RoomState, Track } from '../shared/types';
 import { connect, type ConnStatus } from './ws';
 
 const LS_CLIENT_ID = 'mt_client_id';
 const LS_ROOM = 'mt_room';
 const LS_NAME = 'mt_name';
-
-export type ChatMessage = { from: string; name: string; text: string; at: number };
 
 /**
  * `crypto.randomUUID()` **只在安全上下文里存在**。
@@ -40,9 +39,25 @@ class RoomStore {
   readonly status = signal<ConnStatus>('closed');
   readonly error = signal<string | null>(null);
   readonly chat = signal<ChatMessage[]>([]);
+  /** 房间里聊天记录的总条数。大于本地已加载的条数就说明还有更早的没取 */
+  readonly chatTotal = signal(0);
+  readonly loadingOlder = signal(false);
   readonly myName = signal<string>(savedName());
 
   private conn: ReturnType<typeof connect> | null = null;
+
+  constructor() {
+    // 页面一不可见就算"离开"。最小化窗口、切到别的应用、手机按 home 键
+    // 都不会断开 WebSocket，光看连接状态是看不出来的，所以另开一路上报。
+    //
+    // 常驻监听而不是随连接挂卸：连接会断线重连，可见性不会。
+    document.addEventListener('visibilitychange', () => this.reportPresence());
+  }
+
+  /** 把"页面还在不在前台"告诉服务端。没有连接时什么也不做。 */
+  private reportPresence(): void {
+    this.send({ type: 'presence', away: document.hidden });
+  }
 
   readonly currentTrack = computed<Track | null>(() => {
     const r = this.room.value;
@@ -102,6 +117,9 @@ class RoomStore {
     this.conn = connect(`/api/rooms/${code}/ws`, {
       onStatus: (s) => {
         this.status.value = s;
+        // 重连时服务端会把人翻回在线。如果这个页面此刻在后台，
+        // 那一下翻错了，得立刻纠正回来
+        if (s === 'open') this.reportPresence();
       },
       onMessage: (msg) => this.handle(msg),
     });
@@ -111,9 +129,15 @@ class RoomStore {
     const m = msg as Record<string, any>;
     switch (m.type) {
       case 'state': {
-        const room = m.room as RoomState;
+        const snapshot = m.room as RoomState;
+        // 快照同样要兜底：服务端已经校验过 theme，但客户端不该依赖这一点。
+        // 少了这层，未知主题会让画布回退到默认，切换器却一个都不高亮。
+        const room: RoomState = { ...snapshot, theme: themeOrDefault(snapshot.theme) };
         this.room.value = room;
         this.error.value = null;
+        // 快照只带最近一页，更早的靠 chatTotal 与「加载更早」按钮去取
+        this.chat.value = (m.chat as ChatMessage[] | undefined) ?? [];
+        this.chatTotal.value = typeof m.chatTotal === 'number' ? m.chatTotal : this.chat.value.length;
         // 快照是权威的，直接用它对齐播放器 —— 中途进房/重连后立即就能对上，
         // 不必等下一次周期性同步帧
         if (typeof m.serverNow === 'number') {
@@ -150,8 +174,18 @@ class RoomStore {
       }
 
       case 'chat':
-        this.chat.value = [...this.chat.value, m as ChatMessage].slice(-200);
+        // 不再截断：聊天现在会落库，界面上的条数该和房间里的一致
+        this.chat.value = [...this.chat.value, m as ChatMessage];
+        this.chatTotal.value = Math.max(this.chatTotal.value, this.chat.value.length);
         break;
+
+      case 'theme': {
+        const room = this.room.value;
+        // 查表用的值必须兜底：服务端已经校验过，但客户端不该依赖这一点 ——
+        // 少兜一层的话，一个未知主题会让场景直接不出来
+        if (room) this.room.value = { ...room, theme: themeOrDefault(m.theme) };
+        break;
+      }
 
       case 'error':
         this.error.value = String(m.message ?? '出错了');
@@ -173,11 +207,48 @@ class RoomStore {
     this.conn?.send(msg);
   }
 
+  /** 换房间主题。房间级、平权 —— 跟播放/暂停一样，谁都能改 */
+  setTheme(theme: ThemeId): void {
+    // 白名单在这里再挡一次。值来自我们自己的按钮，但边界是双向的：
+    // 服务端也校验，客户端也校验，谁都不依赖对方
+    if (!isThemeId(theme)) return;
+    this.send({ type: 'theme', theme });
+  }
+
+  /**
+   * 取更早的一页聊天。
+   *
+   * 服务端一条都没删 —— 只是 WebSocket 单帧装不下全部，所以快照只带最近一页，
+   * 更早的按需拉。游标用消息自己的 id，不用时间戳：同一毫秒内可能有多条。
+   */
+  async loadOlderChat(): Promise<void> {
+    const room = this.room.value;
+    const oldest = this.chat.value[0];
+    if (!room || !oldest || this.loadingOlder.value) return;
+
+    this.loadingOlder.value = true;
+    try {
+      const res = await fetch(
+        `/api/rooms/${encodeURIComponent(room.code)}/chat?before=${oldest.id}`,
+      );
+      if (!res.ok) return;
+      const older = (await res.json()) as ChatMessage[];
+      if (Array.isArray(older) && older.length) {
+        this.chat.value = [...older, ...this.chat.value];
+      }
+    } catch {
+      // 拉不到就算了，界面上那颗按钮还在，可以再点
+    } finally {
+      this.loadingOlder.value = false;
+    }
+  }
+
   leave(): void {
     this.conn?.close();
     this.conn = null;
     this.room.value = null;
     this.chat.value = [];
+    this.chatTotal.value = 0;
     this.status.value = 'closed';
     localStorage.removeItem(LS_ROOM);
   }

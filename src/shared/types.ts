@@ -1,3 +1,5 @@
+import type { ThemeId } from './themes';
+
 export type Track = {
   id: string;
   name: string;
@@ -12,6 +14,21 @@ export type Member = {
   clientId: string;
   name: string;
   joinedAt: number;
+  /**
+   * 人断开连接后**不从列表里删掉**，只把这里翻成 false。
+   *
+   * 删掉的话"已离开"这个状态根本不存在，而这个列表的意义正是"谁在这个房间里"
+   * —— 一起听歌时看得见其他成员刚走，比看得见他凭空消失更像一个房间。
+   */
+  online: boolean;
+  /**
+   * 页面不在前台（最小化、切到别的应用、手机按 home）。
+   *
+   * 与 `online` 是两件事：`online` 是"连接还在"，`away` 是"人还在看这个页面"。
+   * 最小化窗口**不会**断开 WebSocket，光看连接状态看不出来，所以另开一路
+   * 由客户端上报。两者都为 false 的人才是真正"已离开"。
+   */
+  away: boolean;
 };
 
 /**
@@ -28,6 +45,20 @@ export type Playback = {
   seq: number;
 };
 
+/**
+ * 一条聊天消息。
+ *
+ * 与第一版不同，聊天**现在会落库**（决策 D12）。`id` 是房间内单调递增的序号，
+ * 用来给"取更早的消息"当游标 —— 用时间戳当游标不行，同一毫秒内可能有多条。
+ */
+export type ChatMessage = {
+  id: number;
+  from: string;
+  name: string;
+  text: string;
+  at: number;
+};
+
 export type RoomState = {
   code: string;
   name: string;
@@ -39,4 +70,6 @@ export type RoomState = {
   playback: Playback;
   /** 曲目表 / 队列的结构版本号 */
   epoch: number;
+  /** 房间主题。房间级、服务端权威 —— 谁都能改，两边一起变 */
+  theme: ThemeId;
 };

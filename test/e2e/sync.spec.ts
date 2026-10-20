@@ -33,8 +33,9 @@ test('两端播放位置保持在 1 秒以内', async ({ browser }) => {
   // 让它们跑一会儿，再比较
   await a.waitForTimeout(3000);
 
-  const sa = await audioState(a);
-  const sb = await audioState(b);
+  // 两端必须**同一时刻**取。顺序取的话，差值里会混进两次 page.evaluate
+  // 之间的往返时间 —— 机器一慢就假红，而且红得毫无规律
+  const [sa, sb] = await Promise.all([audioState(a), audioState(b)]);
 
   expect(sa.exists && sb.exists).toBe(true);
   expect(sa.currentTime).toBeGreaterThan(1);
@@ -96,8 +97,7 @@ test('拖动进度条在两端同步', async ({ browser }) => {
     .poll(async () => (await audioState(b)).currentTime, { timeout: 10_000 })
     .toBeGreaterThan(15);
 
-  const sa = await audioState(a);
-  const sb = await audioState(b);
+  const [sa, sb] = await Promise.all([audioState(a), audioState(b)]);
   expect(Math.abs(sa.currentTime - sb.currentTime)).toBeLessThan(1);
 
   await ctxA.close();
@@ -138,9 +138,8 @@ test('后进来的人立刻跟上当前播放位置，不用等同步帧', async
 
   // 两端要在**同一时刻**比。拿 aBefore 比是错的：那是进房之前的快照，
   // 中间隔着整整一个进房耗时，diff 会等于 elapsed 而不是同步误差 ——
-  // 机器一慢就假红，跟同步精度没关系。
-  const sa = await audioState(a);
-  const sb = await audioState(b);
+  // 机器一慢就假红，跟同步精度没关系。同一时刻就是 Promise.all，不是顺序取。
+  const [sa, sb] = await Promise.all([audioState(a), audioState(b)]);
 
   // 关键：B 的位置应当已经接近 A，而不是从 0 开始
   expect(sb.currentTime).toBeGreaterThan(2);

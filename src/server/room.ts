@@ -7,20 +7,36 @@ import {
   startAnchor,
 } from '../shared/playback';
 import {
+  CHAT_HISTORY_PAGE,
   CHAT_MAX_LENGTH,
   PING,
   PONG,
   parseClientMessage,
   type ServerMessage,
 } from '../shared/protocol';
-import type { Playback, RoomState, Track } from '../shared/types';
+import type { ChatMessage, Playback, RoomState, Track } from '../shared/types';
+import { DEFAULT_THEME, isThemeId, themeOrDefault } from '../shared/themes';
 import type { Env } from './env';
 import { MAX_ROOM_BYTES, MAX_TRACKS_PER_ROOM } from './media';
 
 const STORAGE_KEY = 'room';
 
+/**
+ * 聊天单独一个存储键，**不放进 RoomState**。
+ *
+ * 原因是 RoomState 每次播放/暂停/切歌都会整个 save() 一遍；聊天并进去的话，
+ * 每次点暂停都要把整份聊天记录重写一次存储，而它只会越来越大。
+ */
+const CHAT_KEY = 'chat';
+
 /** 播放中每 30 秒发一次兜底同步帧。暂停时完全不发（免费额度的生命线）。 */
 const SYNC_INTERVAL_MS = 30_000;
+
+/**
+ * 成员列表上限。只淘汰离线的最老的，在线的一个都不动。
+ * 长期房间否则会无限增长，而每份快照都要带上整份列表。
+ */
+const MAX_MEMBERS = 20;
 
 /**
  * 一个房间。
@@ -35,14 +51,36 @@ const SYNC_INTERVAL_MS = 30_000;
  */
 export class RoomDO extends DurableObject<Env> {
   private room: RoomState | null = null;
+  private chat: ChatMessage[] = [];
+  /** 房间内单调递增的消息序号，也是"取更早"的游标 */
+  private chatSeq = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // 应用层心跳由运行时直接应答，这类往返不会唤醒房间
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
-    this.ctx.blockConcurrencyWhile(async () => {
-      this.room = (await this.ctx.storage.get<RoomState>(STORAGE_KEY)) ?? null;
-    });
+    this.ctx.blockConcurrencyWhile(() => this.loadFromStorage());
+  }
+
+  /** 从持久化状态重建内存态。构造函数与测试用的重载端点都走这里 */
+  private async loadFromStorage(): Promise<void> {
+    const stored = await this.ctx.storage.get<RoomState>(STORAGE_KEY);
+    // 升级前建的房间没有 theme 字段。不兜底的话客户端查表查不到，场景直接不出来
+    // —— 而且只在"升级前建过房间"的设备上复现，本地开发大概率撞不到。
+    this.room = stored
+      ? {
+          ...stored,
+          theme: themeOrDefault(stored.theme),
+          // 升级前存下的成员没有 away 字段。补上默认值，别让 undefined
+          // 流进 UI —— 它会在真值判断里被当成 false，看着像好东西，其实是脏数据
+          members: stored.members.map((m) => ({ ...m, away: m.away === true })),
+        }
+      : null;
+
+    this.chat = (await this.ctx.storage.get<ChatMessage[]>(CHAT_KEY)) ?? [];
+    // 序号从已有记录的末尾续上。不这么做的话 DO 被驱逐一次，
+    // 新消息的 id 就从头开始，"取更早"的游标会指到错的地方
+    this.chatSeq = this.chat[this.chat.length - 1]?.id ?? 0;
   }
 
   // ---------- 持久化 ----------
@@ -86,12 +124,28 @@ export class RoomDO extends DurableObject<Env> {
     if (path === '/exists') {
       return this.room ? Response.json({ ok: true }) : new Response('no room', { status: 404 });
     }
+    if (path === '/__test_write_state' && request.method === 'POST') {
+      // 仅测试用：写回一份人造的持久化状态并重载，用来覆盖"升级前的房间"
+      // 那条分支 —— 它只在老数据上复现，正常路径永远走不到。
+      // DO 没有公网路由，只有 Worker 能经 binding 调它，而 Worker 不转发这个
+      // 路径，所以这不构成外部攻击面。
+      await this.ctx.storage.put(STORAGE_KEY, await request.json());
+      await this.loadFromStorage();
+      return Response.json({ ok: true });
+    }
 
     if (!this.room) return new Response('no room', { status: 404 });
 
     switch (path) {
       case '/state':
         return Response.json(this.room);
+      case '/chat-history': {
+        const raw = url.searchParams.get('before');
+        const before = raw === null ? Number.POSITIVE_INFINITY : Number(raw);
+        return Response.json(
+          this.chatHistory(Number.isFinite(before) ? before : Number.POSITIVE_INFINITY),
+        );
+      }
       case '/ws':
         return this.handleWebSocket(request);
       case '/track-add':
@@ -132,6 +186,7 @@ export class RoomDO extends DurableObject<Env> {
       queue: [],
       playback: emptyPlayback(),
       epoch: 0,
+      theme: DEFAULT_THEME,
     };
     await this.save();
     return Response.json({ ok: true, code });
@@ -231,6 +286,10 @@ export class RoomDO extends DurableObject<Env> {
       JSON.stringify({
         type: 'state',
         room: this.requireRoom(),
+        // 只带最近一页。全量发会撞上 WebSocket 单帧 1 MiB 的上限，
+        // 更早的走 /chat-history 按需取
+        chat: this.chatHistory(Number.POSITIVE_INFINITY),
+        chatTotal: this.chat.length,
         serverNow: Date.now(),
       } satisfies ServerMessage),
     );
@@ -243,14 +302,38 @@ export class RoomDO extends DurableObject<Env> {
     const room = this.requireRoom();
     const existing = room.members.find((m) => m.clientId === clientId);
     if (existing) {
-      if (existing.name !== name) {
-        existing.name = name;
-        await this.save();
-      }
+      // 同一个 clientId 又连上了（重连、或者开了第二个标签页）—— 翻回在线
+      const changed = existing.name !== name || !existing.online || existing.away;
+      existing.name = name;
+      existing.online = true;
+      // 连接还在，说明这个页面至少还活着。如果它此刻在后台，客户端会立刻
+      // 再上报一次 away，不会停在错误的状态上
+      existing.away = false;
+      if (changed) await this.save();
       return;
     }
-    room.members.push({ clientId, name, joinedAt: Date.now() });
+    room.members.push({ clientId, name, joinedAt: Date.now(), online: true, away: false });
+    this.trimMembers(room);
     await this.save();
+  }
+
+  /**
+   * 成员列表的上限。**只淘汰离线的最老的** —— 在线的人一个都不动。
+   *
+   * 否则房间开得够久、来来去去够多之后，这个列表会无限长；而如果简单按
+   * 加入时间淘汰，第三十一个人进来会把正在听歌的人从列表里踢出去。
+   */
+  private trimMembers(room: RoomState): void {
+    const over = room.members.length - MAX_MEMBERS;
+    if (over <= 0) return;
+    const drop = new Set(
+      room.members
+        .filter((m) => !m.online)
+        .sort((a, b) => a.joinedAt - b.joinedAt)
+        .slice(0, over)
+        .map((m) => m.clientId),
+    );
+    if (drop.size) room.members = room.members.filter((m) => !drop.has(m.clientId));
   }
 
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -361,14 +444,42 @@ export class RoomDO extends DurableObject<Env> {
         const text = msg.text.trim();
         if (!text || text.length > CHAT_MAX_LENGTH) break;
         const member = room.members.find((m) => m.clientId === tag);
-        // 原样广播，不做 HTML 转义 —— 转义是输出端（前端）的责任
-        this.broadcast({
-          type: 'chat',
+        const message: ChatMessage = {
+          id: ++this.chatSeq,
           from: tag,
           name: member?.name ?? '匿名',
+          // 原样存、原样发，不做 HTML 转义 —— 转义是输出端（前端）的责任
           text,
           at: Date.now(),
-        });
+        };
+        this.chat.push(message);
+        await this.ctx.storage.put(CHAT_KEY, this.chat);
+        this.broadcast({ type: 'chat', ...message });
+        break;
+      }
+
+      case 'presence': {
+        // 只收布尔值。`away: "yes"` 这种隐式真值一律拒掉 ——
+        // 这个字段会落盘并广播，不该由客户端的类型错误决定整个房间看到什么
+        if (typeof msg.away !== 'boolean') break;
+        const member = room.members.find((m) => m.clientId === tag);
+        if (!member) break;
+        // 幂等：可见性事件在真机上会成串地来，重复上报不该变成广播风暴
+        if (member.away === msg.away) break;
+        member.away = msg.away;
+        await this.save();
+        this.broadcast({ type: 'members', members: room.members });
+        break;
+      }
+
+      case 'theme': {
+        // 边界处一律校验：这个值会落进持久化状态并广播给全房间
+        if (!isThemeId(msg.theme)) break;
+        // 幂等。重复设同一个主题不该产生一次无谓的广播与一次落盘
+        if (room.theme === msg.theme) break;
+        room.theme = msg.theme;
+        await this.save();
+        this.broadcast({ type: 'theme', theme: room.theme });
         break;
       }
 
@@ -379,7 +490,7 @@ export class RoomDO extends DurableObject<Env> {
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
     const tag = this.ctx.getTags(ws)[0] ?? '';
-    // 只有这个 clientId 已经没有活着的连接时，才算真正离开
+    // 只有这个 clientId 已经没有活着的连接时，才算真的离线
     const stillHere = this.ctx
       .getWebSockets()
       .some((s) => (this.ctx.getTags(s)[0] ?? '') === tag);
@@ -387,7 +498,10 @@ export class RoomDO extends DurableObject<Env> {
 
     const room = this.room;
     if (!room) return;
-    room.members = room.members.filter((m) => m.clientId !== tag);
+    const member = room.members.find((m) => m.clientId === tag);
+    // 这里**不删人**，只翻成离线。删掉的话"已离开"就无从显示
+    if (!member || !member.online) return;
+    member.online = false;
     await this.save();
     this.broadcast({ type: 'members', members: room.members });
   }
@@ -404,6 +518,13 @@ export class RoomDO extends DurableObject<Env> {
     }
     this.broadcast({ type: 'sync', playback: room.playback, serverNow: Date.now() });
     await this.ctx.storage.setAlarm(Date.now() + SYNC_INTERVAL_MS);
+  }
+
+  /** 取 `before` 之前的最近一页。`before` 为 Infinity 就是取最新那一页 */
+  private chatHistory(before: number): ChatMessage[] {
+    const firstAtOrAfter = this.chat.findIndex((m) => m.id >= before);
+    const cut = firstAtOrAfter === -1 ? this.chat.length : firstAtOrAfter;
+    return this.chat.slice(Math.max(0, cut - CHAT_HISTORY_PAGE), cut);
   }
 
   // ---------- 内部 ----------

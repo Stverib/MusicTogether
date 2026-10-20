@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SELF } from 'cloudflare:test';
-import { ORIGIN, fakeSong, newRoom, nextIp, roomWith, uploadTrack } from './helpers';
+import { ORIGIN, SELF, fakeSong, newRoom, nextIp, roomWith, uploadTrack } from './helpers';
 
 function song(n: number): Uint8Array {
   const b = new Uint8Array(n);

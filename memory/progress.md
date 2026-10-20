@@ -8,10 +8,14 @@
 - 为开源发布做了一轮整理：重写 README、补充 MIT 许可证、把文档里只对原始
   私有部署成立的一次性表述改成中性描述，并对全部提交历史做了脱敏
   （个人信息、内网地址、房间码、提交邮箱）。
+- 集成测试迁到 `cloudflare:workers` 的 `env` 与 `exports.default`，
+  `cloudflare:test` 的 `SELF`/`env` 已废弃；`GlobalProps.mainModule` 让
+  `exports.default` 在测试里保持主 worker 的类型。
+- `feature/3d-stage` 已合并回 `master`，成员在线状态、聊天落库与 3D 舞台进入稳定版。
 
 ## 2026-10-19
 
-### 3D 舞台（`feature/3d-stage` 分支）
+### 3D 舞台
 
 - 主题是房间级、服务端权威：协议增加 `theme`，落进 `RoomState` 并广播；
   白名单在 `src/shared/themes.ts`，服务端与客户端共用一份
@@ -22,7 +26,7 @@
   备路 `createMediaElementSource()` → 程序化曲线。音频能量只在本地计算，不上行
 - 三条降级路径都不影响播放：拿不到 WebGL、three 的 chunk 拉不下来、运行期抛异常
 - 画质只降不升，按实测帧时间判定，档位存在本地、不上行
-- 首屏增长 1.7 KB（42,798 B → 44,520 B）。整棵场景树走动态 import，
+- 首屏增长 1.7 KB（42,798 B → 44,577 B）。整棵场景树走动态 import，
   是一个独立的 5.6 KB chunk；three 另在 736 KB 的 chunk 里，进房间才拉
 
 **踩坑**：`npx vitest` 曾被 RTK 钩子解析成另一个 vitest，集成测试池起不来。
@@ -32,7 +36,22 @@
 
 `online` 只管「连接还在」，客户端另外上报 `away` 表示「页面在不在前台」。
 最小化窗口、切到别的应用、手机按 Home 都不会断开 WebSocket，只看连接状态
-会把人误判为在线。界面上用绿点 / 灰点表示，点在名字右边。
+会把人误判为在线。界面上用绿点 / 灰点表示，点在名字右边。列表上限 20，
+只淘汰离线最久的成员。
+
+### 聊天落库
+
+聊天不再只是广播，而是单独存一个键，不并进 `RoomState`（后者每次播放/暂停
+都会整个 save 一遍）。快照只带最近 200 条，更早的走
+`GET /api/rooms/:code/chat?before=<id>`。聊天框改成固定高度 + 滚动，
+顺带修掉「往上翻历史会被新消息拽回底部」。
+
+### 歌词（已探明，暂不做）
+
+对本地音乐库的 402 个 mp3 做过探针：内嵌歌词 0 个（USLT/SYLT 全无，
+ID3 里只有歌手/标题/专辑/注释），但 322 个（80.1%）有同名 `.lrc`。
+所以「读 ID3 内嵌」这条路是死的，`.lrc` 那条路是通的。暂不做。
+探针脚本是一次性的，跑完即弃，没进仓库。
 
 ### 同步精度用例的取样方式
 
@@ -42,10 +61,13 @@
 
 ### 尚未完成
 
-- 3D 舞台真机验收：HarmonyOS 浏览器上 WebGL 是否可用；连续播放 30 分钟
-  观察温度与掉帧；锁屏 / 切后台后音频继续播放
+- 3D 舞台真机验收：HarmonyOS / Android 的 WebGL 均已可用，锁屏 / 切后台后
+  音频继续播放也已复现；仍缺连续播放 30 分钟的温度与掉帧观察
 - 两个主题的观感只有代码与 E2E 覆盖，还没有人工过目；手机自动降画质的
   实际效果也未验证
+- PWA 安装与锁屏媒体控制没有验证过：局域网 HTTP 不是安全上下文，
+  Service Worker 装不上，要等 HTTPS（部署，或用 `cloudflared tunnel`
+  临时把本地 dev server 暴露成 HTTPS）
 
 ## 2026-10-18
 
@@ -113,3 +135,27 @@ PWA 装不上 / 没有离线能力；访客网络若做了客户端隔离则连�
   那层不在 node 的进程树里，程序化收尾杀不干净，会在 `0.0.0.0:8787` 上留下
   孤儿 `workerd`。起 wrangler 直接 `node node_modules/wrangler/bin/wrangler.js`，
   别过 `npx`
+- **新建 worktree 之后要手动 `cp .dev.vars .dev.vars`**。它是 gitignore 的，
+  worktree 等于一份全新检出，不补的话集成测试整个跑不起来
+  （报的是 `SESSION_SECRET missing`）
+- **`EnterWorktree` 工具在这个仓库用不了** —— harness 认为它不是 git 仓库，
+  而 Bash 里的 git 一切正常。退回手搓
+  `git worktree add .worktrees/<名字> -b <分支>`，
+  记得先把 `.worktrees/` 写进 `.gitignore`
+- **RTK 钩子会把 `ls` 的输出改成带体积的形式**，`ls | sed 's/.*\.//'` 这类
+  按行切字段的统计会静默算错。要统计文件类型就用 Node 或 `find`
+- **RTK 会把 vitest 的输出压成 `PASS (n) FAIL (n)`**，失败原因全看不见。
+  它同时留了原始日志，路径在输出里，从那里读 JSON 才拿得到 message
+- **`npx vitest` 不可信。** 它会解析到另一个 vitest，集成测试池起不来，
+  报的是 `Cannot read properties of undefined (reading 'config')` ——
+  看起来像代码坏了，其实是工具链。用 `npm test` 或
+  `node node_modules/vitest/vitest.mjs run`
+- **E2E 跑着的时候不要 `npm run build`。** `emptyOutDir` 会把服务器正在用的
+  `dist/` 整个换掉，表现是随机几条用例「进不了房间」，而且红的是完全无关的用例。
+  Playwright 的 webServer 只在开跑时构建一次
+- **`page.route` 拦不到 Service Worker 发起的请求。** 想拦某个 chunk 来模拟
+  加载失败，必须 `browser.newContext({ serviceWorkers: 'block' })`，
+  否则那条用例会静默地什么都没测到
+- **Vite 8 走 rolldown**：`manualChunks` 的对象形式直接报
+  `TypeError: manualChunks is not a function`，`advancedChunks` 也已废弃，
+  现在叫 `codeSplitting.groups`

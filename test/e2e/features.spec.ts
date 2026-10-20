@@ -45,6 +45,84 @@ test('没有 crypto.randomUUID 时也要能启动', async ({ page }) => {
   await expect(page.locator('header strong')).toContainText('房间 ', { timeout: 15_000 });
 });
 
+/**
+ * 伪造"页面被切到后台"。
+ *
+ * Playwright 没有真的把页面藏起来的办法 —— `document.hidden` 是只读的，
+ * 页面也不会真的失焦。但实现就挂在 `visibilitychange` 上，所以改写这两个
+ * 属性再派发事件，测的正是那条接线本身。
+ */
+async function setVisible(page: Page, visible: boolean): Promise<void> {
+  await page.evaluate((v) => {
+    Object.defineProperty(document, 'hidden', { value: !v, configurable: true });
+    Object.defineProperty(document, 'visibilityState', {
+      value: v ? 'visible' : 'hidden',
+      configurable: true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, visible);
+}
+
+test('页面切到后台就算离开，另一端立刻看到灰点', async ({ browser }) => {
+  const { ctxA, ctxB, a, b } = await twoSides(browser);
+  const code = await createRoom(a, '阿甲');
+  await joinRoom(b, '阿乙', code);
+
+  const yiAtA = a.locator('.members li', { hasText: '阿乙' });
+  await expect(yiAtA.locator('.presence.on')).toHaveCount(1);
+
+  // 阿乙把浏览器切走 —— 连接没断，只是人不在看
+  await setVisible(b, false);
+  await expect(yiAtA.locator('.presence.off')).toHaveCount(1);
+  await expect(yiAtA).toContainText('已离开');
+
+  // 切回来就又是在线
+  await setVisible(b, true);
+  await expect(yiAtA.locator('.presence.on')).toHaveCount(1);
+  await expect(yiAtA).toContainText('在线');
+
+  await ctxA.close();
+  await ctxB.close();
+});
+
+test('绿点在名字右边，且绿点确实偏绿', async ({ browser }) => {
+  const { ctxA, ctxB, a, b } = await twoSides(browser);
+  const code = await createRoom(a, '阿甲');
+  await joinRoom(b, '阿乙', code);
+
+  const yiAtA = a.locator('.members li', { hasText: '阿乙' });
+  await expect(yiAtA.locator('.presence.on')).toHaveCount(1);
+
+  const geo = await yiAtA.evaluate((li) => {
+    const name = li.querySelector('.name')!.getBoundingClientRect();
+    const dot = li.querySelector('.presence')!.getBoundingClientRect();
+    const rgb = getComputedStyle(li.querySelector('.presence')!).backgroundColor;
+    const [r, g, bl] = rgb.match(/\d+/g)!.map(Number) as [number, number, number];
+    return { nameRight: name.right, dotLeft: dot.left, r, g, b: bl };
+  });
+
+  // 点在名字右边，不是左边
+  expect(geo.dotLeft).toBeGreaterThanOrEqual(geo.nameRight - 1);
+  // 绿：绿通道明显高过红和蓝。断言语义而不是写死色号 —— 色号会随配色调整变
+  expect(geo.g).toBeGreaterThan(geo.r);
+  expect(geo.g).toBeGreaterThan(geo.b);
+
+  await setVisible(b, false);
+  await expect(yiAtA.locator('.presence.off')).toHaveCount(1);
+
+  const away = await yiAtA.evaluate((li) => {
+    const rgb = getComputedStyle(li.querySelector('.presence')!).backgroundColor;
+    const [r, g, bl] = rgb.match(/\d+/g)!.map(Number) as [number, number, number];
+    return { r, g, b: bl };
+  });
+  // 暖灰（这套配色里没有纯灰，--ink-3 的通道差就是 44）。判据是"没有哪个通道
+  // 明显占优" —— 绿点那边的差是 79，两者不会混
+  expect(Math.max(away.r, away.g, away.b) - Math.min(away.r, away.g, away.b)).toBeLessThan(60);
+
+  await ctxA.close();
+  await ctxB.close();
+});
+
 test('聊天消息两端都出现，发送后输入框清空', async ({ browser }) => {
   const { ctxA, ctxB, a, b } = await twoSides(browser);
   const code = await createRoom(a, '阿甲');
@@ -117,12 +195,12 @@ test('断线后自动重连，恢复后两端位置重新对齐', async ({ brows
   await expect(b.locator('.banner')).toBeHidden({ timeout: 30_000 });
   await expect(b.locator('.dot.open')).toBeVisible({ timeout: 15_000 });
 
-  // 关键：重连之后位置要重新对上，而不是各自漂着
+  // 关键：重连之后位置要重新对上，而不是各自漂着。
+  // 两端必须同一时刻取 —— 顺序取的话差值里混进两次 page.evaluate 的往返时间
   await expect
     .poll(
       async () => {
-        const sa = await audioState(a);
-        const sb = await audioState(b);
+        const [sa, sb] = await Promise.all([audioState(a), audioState(b)]);
         return Math.abs(sa.currentTime - sb.currentTime);
       },
       { timeout: 30_000 },
