@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { env } from 'cloudflare:workers';
+import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { member, nextOfType, roomWithMembers, uploadTrack } from './helpers';
 
 describe('播放控制', () => {
@@ -158,6 +160,35 @@ describe('播放控制', () => {
       new Promise((r) => setTimeout(() => r('quiet'), 300)),
     ]);
     expect(raced).toBe('quiet');
+  });
+
+  it('所有人断开后，alarm 不再空转', async () => {
+    const { code, members } = await roomWithMembers(['阿甲']);
+    const a = members[0]!;
+    const trackId = await uploadTrack(code, a.cookie, 'a.mp3');
+
+    a.ws.send(JSON.stringify({ type: 'play', trackId }));
+    await nextOfType(a.next, 'playback');
+    a.ws.close();
+
+    const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
+    // 等 DO 真的看到最后一个连接已关闭，否则测的还是「有人在线」的分支
+    await vi.waitFor(
+      async () => {
+        const sockets = await runInDurableObject(
+          stub,
+          (instance) =>
+            (instance as unknown as { ctx: DurableObjectState }).ctx.getWebSockets().length,
+        );
+        expect(sockets).toBe(0);
+      },
+      { timeout: 5_000 },
+    );
+
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    expect(
+      await runInDurableObject(stub, (_instance, state) => state.storage.getAlarm()),
+    ).toBe(null);
   });
 
   it('next 切到队列里的下一首，prev 切回上一首', async () => {

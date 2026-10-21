@@ -512,7 +512,10 @@ export class RoomDO extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     const room = this.room;
-    if (!room || !room.playback.isPlaying) {
+    // 没人在线时兜底帧没有收件人。继续每 30 秒自我重排，既浪费唤醒，
+    // 也会让「房间留在播放中 + 服务重启」的本地 SQLite alarm 反复空转。
+    // 播放锚点是时间戳，等下一个客户端进来照样能算出当前位置。
+    if (!room || !room.playback.isPlaying || this.ctx.getWebSockets().length === 0) {
       await this.ctx.storage.deleteAlarm();
       return;
     }
