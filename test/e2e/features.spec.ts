@@ -1,5 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
-import { audioState, createRoom, joinRoom, makeWav, uploadOne, waitForPlaying } from './helpers';
+import {
+  audioState,
+  createRoom,
+  joinRoom,
+  makeBogusAudio,
+  makeVideoOnlyMp4,
+  makeWav,
+  uploadOne,
+  waitForPlaying,
+} from './helpers';
 
 /** 直接读 IndexedDB，确认缓存真的落盘了，而不只是界面上写着有 */
 function cachedCount(page: Page): Promise<number> {
@@ -121,6 +130,22 @@ test('绿点在名字右边，且绿点确实偏绿', async ({ browser }) => {
 
   await ctxA.close();
   await ctxB.close();
+});
+
+test('纯视频 MP4 改成 .mp3 会在上传前被拦下', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  await page.locator('input[accept="audio/*"]').setInputFiles(makeVideoOnlyMp4());
+  // 这种文件能通过扩展名过滤，但容器里只有视频轨，播出来永远没有声音
+  await expect(page.locator('.library .error')).toContainText('没有音频轨道');
+  await expect(page.locator('.library .picklist')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '全部上传' })).toHaveCount(0);
+});
+
+test('解码失败时播放器给出提示，而不是静默没声', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  await uploadOne(page, makeBogusAudio());
+  await page.getByRole('button', { name: '播放《broken.mp3》' }).click();
+  await expect(page.locator('.player .error')).toContainText('无法播放', { timeout: 15_000 });
 });
 
 test('聊天消息两端都出现，发送后输入框清空', async ({ browser }) => {

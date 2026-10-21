@@ -38,6 +38,8 @@ class RoomStore {
   readonly room = signal<RoomState | null>(null);
   readonly status = signal<ConnStatus>('closed');
   readonly error = signal<string | null>(null);
+  /** 当前曲目播放失败时给用户看的提示；换歌或播放成功时清空 */
+  readonly playError = signal<string | null>(null);
   readonly chat = signal<ChatMessage[]>([]);
   /** 房间里聊天记录的总条数。大于本地已加载的条数就说明还有更早的没取 */
   readonly chatTotal = signal(0);

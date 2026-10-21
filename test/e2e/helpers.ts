@@ -71,6 +71,45 @@ export function makeWav(
   return path;
 }
 
+/**
+ * 造一个只有视频轨的 MP4，但文件名是 .mp3。
+ * 模拟从视频网站下载后直接改扩展名的文件：容器合法，但永远没有声音。
+ */
+export function makeVideoOnlyMp4(name = 'video-only.mp3'): string {
+  const enc = new TextEncoder();
+  const box = (type: string, ...parts: Uint8Array[]): Uint8Array => {
+    const out = new Uint8Array(8 + parts.reduce((n, p) => n + p.length, 0));
+    new DataView(out.buffer).setUint32(0, out.length);
+    out.set(enc.encode(type), 4);
+    let at = 8;
+    for (const part of parts) {
+      out.set(part, at);
+      at += part.length;
+    }
+    return out;
+  };
+
+  const hdlr = new Uint8Array(12);
+  hdlr.set(enc.encode('vide'), 8);
+  const data = Buffer.concat([
+    box('ftyp', enc.encode('isom'), new Uint8Array(4)),
+    box('moov', box('trak', box('mdia', box('hdlr', hdlr)))),
+  ]);
+
+  const dir = mkdtempSync(join(tmpdir(), 'mt-e2e-'));
+  const path = join(dir, name);
+  writeFileSync(path, data);
+  return path;
+}
+
+/** 造一个扩展名像音频、内容却不是音频的文件，用来验证播放失败提示 */
+export function makeBogusAudio(name = 'broken.mp3'): string {
+  const dir = mkdtempSync(join(tmpdir(), 'mt-e2e-'));
+  const path = join(dir, name);
+  writeFileSync(path, 'this is not audio');
+  return path;
+}
+
 /** 上传一首歌，并等到队列里确实有 expectedCount 首 */
 export async function uploadOne(
   page: Page,

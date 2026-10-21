@@ -60,6 +60,8 @@ export function Player() {
       <div class="title">{track.name}</div>
       <div class="by">由 {track.uploaderName} 上传</div>
 
+      {store.playError.value && <p class="error">{store.playError.value}</p>}
+
       <input
         class="seek"
         type="range"

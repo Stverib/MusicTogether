@@ -32,10 +32,20 @@ export class Player {
     document.body.appendChild(this.audio);
 
     this.audio.addEventListener('timeupdate', () => this.correctDrift());
-    this.audio.addEventListener('playing', () => this.correctDrift(START_ALIGN_MS));
+    this.audio.addEventListener('playing', () => {
+      store.playError.value = null;
+      this.correctDrift(START_ALIGN_MS);
+    });
     this.audio.addEventListener('ended', () => store.send({ type: 'next' }));
     this.audio.addEventListener('error', () => {
-      if (this.currentTrackId) console.warn('播放失败', this.audio.error?.code);
+      if (!this.currentTrackId) return;
+      const code = this.audio.error?.code;
+      console.warn('播放失败', code, this.currentTrackId);
+      // 3 = 解码失败，4 = 源不受支持。其余多半是网络或解码器临时问题
+      store.playError.value =
+        code === 3 || code === 4
+          ? '这首歌无法播放：文件损坏、编码不受支持，或里面没有音频轨道。'
+          : '这首歌播放出错了，换一首试试。';
     });
 
     store.onPlayback = (playback, serverNow, align) => this.apply(playback, serverNow, align);
@@ -86,6 +96,7 @@ export class Player {
     const room = store.room.value;
     const trackId = playback.trackId;
     this.currentTrackId = trackId;
+    store.playError.value = null;
 
     if (!room || !trackId) {
       this.audio.removeAttribute('src');

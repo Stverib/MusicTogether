@@ -1,4 +1,5 @@
 import { useRef, useState } from 'preact/hooks';
+import { probeAudio } from '../audioProbe';
 import { filterAudio, pickDirectory, uploadTrack } from '../sources';
 import { store } from '../store';
 
@@ -13,21 +14,35 @@ export function Library() {
 
   const room = store.room.value!;
 
-  const takeFiles = (files: File[]) => {
+  const takeFiles = async (files: File[]) => {
     const audio = filterAudio(files);
     if (!audio.length) {
       setError('这个位置没有找到音频文件');
       return;
     }
-    setError(null);
-    setPicked(audio);
+
+    // 扩展名可能是骗人的：把只有视频轨的 MP4 改名成 .mp3 也能选进来，
+    // 但播放器永远不会有声音。先探一下，别让它进房间。
+    const playable: File[] = [];
+    const silent: string[] = [];
+    for (const file of audio) {
+      if ((await probeAudio(file)) === 'no-audio') silent.push(file.name);
+      else playable.push(file);
+    }
+
+    setError(
+      silent.length
+        ? `${silent.join('、')} 里没有音频轨道，可能是把视频文件改成了 .mp3；已跳过。`
+        : null,
+    );
+    setPicked(playable.length ? playable : null);
   };
 
   const chooseFolder = async () => {
     // 桌面 Chrome/Edge 有目录选择 API；手机没有，退化到 webkitdirectory
     const fromApi = await pickDirectory();
     if (fromApi) {
-      takeFiles(fromApi);
+      await takeFiles(fromApi);
       return;
     }
     dirInput.current?.click();
@@ -71,7 +86,7 @@ export function Library() {
           dirInput.current = el;
           el?.setAttribute('webkitdirectory', '');
         }}
-        onChange={(e) => takeFiles([...(e.target as HTMLInputElement).files ?? []])}
+        onChange={(e) => void takeFiles([...(e.target as HTMLInputElement).files ?? []])}
       />
       <input
         type="file"
@@ -79,7 +94,7 @@ export function Library() {
         accept="audio/*"
         multiple
         hidden
-        onChange={(e) => takeFiles([...(e.target as HTMLInputElement).files ?? []])}
+        onChange={(e) => void takeFiles([...(e.target as HTMLInputElement).files ?? []])}
       />
 
       {error && <p class="error">{error}</p>}
