@@ -148,6 +148,25 @@ test('解码失败时播放器给出提示，而不是静默没声', async ({ pa
   await expect(page.locator('.player .error')).toContainText('无法播放', { timeout: 15_000 });
 });
 
+test('起播缓冲时显示“缓冲中”，拿到时长后恢复', async ({ browser }) => {
+  const ctx = await browser.newContext({ serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  await createRoom(page, '阿甲');
+  await uploadOne(page, makeWav({ seconds: 10, name: 'buffer-10s.wav' }));
+
+  await page.route('**/tracks/*/stream', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await route.continue();
+  });
+
+  await page.getByRole('button', { name: /播放《/ }).click();
+  await expect(page.locator('.player .eyebrow')).toContainText('缓冲中');
+  await expect(page.locator('.player .times span').last()).toHaveText('--:--');
+  await expect(page.locator('.player .eyebrow')).toContainText('正在播放', { timeout: 15_000 });
+  await expect(page.locator('.player .times span').last()).not.toHaveText('--:--');
+  await ctx.close();
+});
+
 test('聊天消息两端都出现，发送后输入框清空', async ({ browser }) => {
   const { ctxA, ctxB, a, b } = await twoSides(browser);
   const code = await createRoom(a, '阿甲');
@@ -234,6 +253,19 @@ test('断线后自动重连，恢复后两端位置重新对齐', async ({ brows
 
   await ctxA.close();
   await ctxB.close();
+});
+
+test('起播稳定前不缓存，避免和播放抢带宽', async ({ page }) => {
+  await createRoom(page, '阿甲');
+  await uploadOne(page, makeWav({ seconds: 30, name: 'cache-delay-30s.wav' }));
+  await page.locator('.player .primary').click();
+  await waitForPlaying(page);
+
+  // 起播后 3 秒还不该有整曲缓存 —— 缓存被刻意推迟到 12 秒后
+  await page.waitForTimeout(3000);
+  expect(await cachedCount(page)).toBe(0);
+
+  await expect.poll(() => cachedCount(page), { timeout: 30_000 }).toBe(1);
 });
 
 test('播放后自动缓存到本地，重载走本地副本，删掉后回到网络流', async ({ browser }) => {

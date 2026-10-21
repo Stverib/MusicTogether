@@ -11,6 +11,13 @@ import { planPlayback, streamUrl } from './sync';
 const START_ALIGN_MS = 500;
 
 /**
+ * 起播时先别抢带宽：整首缓存和 <audio> 走同一条网络，
+ * 窄带下同时下载会让进度条卡在 0:00 很久。等播放稳定后再缓存。
+ */
+const CACHE_DELAY_MS = 12_000;
+const CACHE_RETRY_MS = 5_000;
+
+/**
  * 同步播放器。
  *
  * 职责只有一个：收到服务端锚点后，把 <audio> 摆到正确的位置。
@@ -20,6 +27,7 @@ export class Player {
   readonly audio: HTMLAudioElement;
 
   private currentTrackId: string | null = null;
+  private cacheTimer: number | null = null;
   private lastServerNow = 0;
   private lastReceivedAt = 0;
 
@@ -39,6 +47,7 @@ export class Player {
     this.audio.addEventListener('ended', () => store.send({ type: 'next' }));
     this.audio.addEventListener('error', () => {
       if (!this.currentTrackId) return;
+      this.clearCacheTimer();
       const code = this.audio.error?.code;
       console.warn('播放失败', code, this.currentTrackId);
       // 3 = 解码失败，4 = 源不受支持。其余多半是网络或解码器临时问题
@@ -92,10 +101,37 @@ export class Player {
     }
   }
 
+  private clearCacheTimer(): void {
+    if (this.cacheTimer !== null) {
+      window.clearTimeout(this.cacheTimer);
+      this.cacheTimer = null;
+    }
+  }
+
+  /**
+   * 缓存是离线的锦上添花，不该拖慢正在进行的播放：
+   * 先等 12 秒；如果还在缓冲，就一轮轮往后推，直到真的有足够数据。
+   */
+  private scheduleCache(trackId: string, url: string, delay: number): void {
+    this.clearCacheTimer();
+    this.cacheTimer = window.setTimeout(() => {
+      this.cacheTimer = null;
+      if (this.currentTrackId !== trackId) return; // 期间切歌了
+      if (this.audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+        this.scheduleCache(trackId, url, CACHE_RETRY_MS);
+        return;
+      }
+      void cacheTrack(trackId, url).catch(() => {
+        // 缓存失败不影响播放，只是下次还得走网络
+      });
+    }, delay);
+  }
+
   private load(playback: Playback, positionMs: number, isPlaying: boolean): void {
     const room = store.room.value;
     const trackId = playback.trackId;
     this.currentTrackId = trackId;
+    this.clearCacheTimer();
     store.playError.value = null;
 
     if (!room || !trackId) {
@@ -107,7 +143,7 @@ export class Player {
     const networkUrl = streamUrl(room.code, trackId);
 
     void (async () => {
-      // 有本地缓存就秒开且离线可用；没有就走网络流，同时在后台把它缓存下来
+      // 有本地缓存就秒开且离线可用；没有就走网络流，起播稳定后再缓存
       const local = await getCachedUrl(trackId);
       if (this.currentTrackId !== trackId) return; // 期间切歌了，这次加载作废
 
@@ -115,11 +151,7 @@ export class Player {
       this.audio.currentTime = positionMs / 1000;
       if (isPlaying) void this.audio.play().catch(() => {});
 
-      if (!local) {
-        void cacheTrack(trackId, networkUrl).catch(() => {
-          // 缓存失败不影响播放，只是下次还得走网络
-        });
-      }
+      if (!local) this.scheduleCache(trackId, networkUrl, CACHE_DELAY_MS);
     })();
   }
 

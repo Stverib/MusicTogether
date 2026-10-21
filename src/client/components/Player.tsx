@@ -13,6 +13,7 @@ export function Player() {
   const track = store.currentTrack.value;
   const [localTime, setLocalTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [readyState, setReadyState] = useState(0);
   const dragging = useRef(false);
 
   useEffect(() => {
@@ -20,9 +21,17 @@ export function Player() {
       if (!dragging.current) setLocalTime(player.audio.currentTime * 1000);
       const d = player.audio.duration;
       setDuration(Number.isFinite(d) ? d * 1000 : 0);
+      setReadyState(player.audio.readyState);
     }, 250);
     return () => clearInterval(id);
   }, []);
+
+  // 换歌时先把上一首的时长/进度清掉，避免新歌短暂显示旧时长
+  useEffect(() => {
+    setLocalTime(0);
+    setDuration(0);
+    setReadyState(0);
+  }, [track?.id]);
 
   if (!track) {
     // 「队列里有歌」和「正在放歌」是两回事 —— 上传只入队，不自动开播
@@ -47,6 +56,9 @@ export function Player() {
   }
 
   const isPlaying = room.playback.isPlaying;
+  const hasDuration = duration > 0;
+  // 房间在播不等于本机已经有声音：元数据/缓冲没到位时别显示“正在播放”
+  const buffering = isPlaying && (!hasDuration || readyState < HTMLMediaElement.HAVE_FUTURE_DATA);
   // 进度条的填充比例。用 CSS 变量交给样式表画那道"光"。
   const pct = duration > 0 ? Math.min(100, Math.max(0, (localTime / duration) * 100)) : 0;
 
@@ -54,7 +66,7 @@ export function Player() {
     <div class="player">
       <div class="eyebrow">
         <span class="pip" />
-        {isPlaying ? '正在播放' : '已暂停'}
+        {isPlaying ? (buffering ? '缓冲中…' : '正在播放') : '已暂停'}
       </div>
 
       <div class="title">{track.name}</div>
@@ -68,6 +80,7 @@ export function Player() {
         min={0}
         max={Math.max(duration, 1)}
         value={localTime}
+        disabled={!hasDuration}
         // 进度条的填充比例交给样式表画。用 style 字符串而不是对象 ——
         // Preact 的对象式 style 类型里没有自定义属性
         style={`--p:${pct}%`}
@@ -83,7 +96,7 @@ export function Player() {
 
       <div class="row spread times">
         <span>{fmt(localTime)}</span>
-        <span>{fmt(duration)}</span>
+        <span>{hasDuration ? fmt(duration) : '--:--'}</span>
       </div>
 
       <div class="row controls">
