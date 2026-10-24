@@ -65,34 +65,29 @@ export class B2Client {
     const fixed = new FixedLengthStream(length);
     const pumping = body.pipeTo(fixed.writable).catch(() => {});
 
-    let res: Response;
-    try {
-      res = await this.fetchImpl(upload.url, {
-        method: 'POST',
-        headers: {
-          Authorization: upload.token,
-          'X-Bz-File-Name': encodeB2Path(key),
-          // 流式上传算不出 SHA1；B2 明确允许这个字面值
-          'X-Bz-Content-Sha1': 'do_not_verify',
-          'X-Bz-Info-name': encodeURIComponent(filename.slice(0, 200)),
-          'Content-Type': contentType,
-          'Content-Length': String(length),
-        },
-        body: fixed.readable,
-      });
-      await pumping;
-    } catch (err) {
-      await pumping;
-      throw err;
-    }
+    const res = await this.fetchImpl(upload.url, {
+      method: 'POST',
+      headers: {
+        Authorization: upload.token,
+        'X-Bz-File-Name': encodeB2Path(key),
+        // 流式上传算不出 SHA1；B2 明确允许这个字面值
+        'X-Bz-Content-Sha1': 'do_not_verify',
+        'X-Bz-Info-name': encodeURIComponent(filename.slice(0, 200)),
+        'Content-Type': contentType,
+        'Content-Length': String(length),
+      },
+      body: fixed.readable,
+    });
 
     if (!res.ok) {
-      // 上传地址被拒（令牌失效、超配额）后不能再用，下一次重新申请。
-      // 请求体是一次性流，没法重放，所以这里只能如实失败
+      // 被拒时 B2 可能根本没读请求体，这时等 pumping 会永远等下去；
+      // 请求体是一次性流，也没法重放，所以直接如实失败
       this.upload = null;
       const code = await errorCode(res);
       throw new Error(`b2 upload failed: ${res.status}${code ? ` ${code}` : ''}`);
     }
+
+    await pumping;
 
     const info = (await res.json()) as { contentLength?: number };
     return info.contentLength ?? length;

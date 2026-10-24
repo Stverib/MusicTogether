@@ -18,16 +18,21 @@ type Call = { url: string; method: string; headers: Headers; body: Uint8Array | 
  * 假 B2：按 URL 分派，记录每次请求。上传的流必须真的读完 ——
  * 否则 FixedLengthStream 会一直等，测试会挂住。
  */
-function fakeB2(overrides: Record<string, (call: Call) => Response | Promise<Response>> = {}) {
+function fakeB2(
+  overrides: Record<string, (call: Call) => Response | Promise<Response>> = {},
+  drainBody = true,
+) {
   const calls: Call[] = [];
 
   const fetchImpl: FetchLike = async (input, init) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
     const headers = new Headers(init?.headers);
-    const body = init?.body
-      ? new Uint8Array(await new Response(init.body as ReadableStream).arrayBuffer())
-      : null;
+    // 真实 B2 在上传被拒时可能根本不读请求体
+    const body =
+      init?.body && drainBody
+        ? new Uint8Array(await new Response(init.body as ReadableStream).arrayBuffer())
+        : null;
     const call: Call = { url, method, headers, body };
     calls.push(call);
 
@@ -192,6 +197,21 @@ describe('B2 客户端', () => {
       [UPLOAD_URL]: () =>
         Response.json({ code: 'storage_cap_exceeded', message: 'cap' }, { status: 403 }),
     });
+    const b2 = new B2Client(CONFIG, fetchImpl);
+
+    await expect(
+      b2.putObject('rooms/R/tracks/T', streamOf(new Uint8Array([1])), 1, 'audio/mpeg', 'a.mp3'),
+    ).rejects.toThrow(/403/);
+  });
+
+  it('B2 没读请求体就拒绝时也要立刻失败，不能一直等流写完', async () => {
+    const { fetchImpl } = fakeB2(
+      {
+        [UPLOAD_URL]: () =>
+          Response.json({ code: 'storage_cap_exceeded', message: 'cap' }, { status: 403 }),
+      },
+      false,
+    );
     const b2 = new B2Client(CONFIG, fetchImpl);
 
     await expect(
