@@ -10,6 +10,11 @@ export interface Env {
   B2_APPLICATION_KEY?: string;
   B2_BUCKET_ID?: string;
   B2_BUCKET_NAME?: string;
+  /**
+   * 显式指定存储后端，**仅测试用**：设成 `r2` 就强制走本地 R2，
+   * 哪怕 .dev.vars 里配了真实的 B2 密钥。E2E 靠它避免往真桶里写数据。
+   */
+  STORAGE?: string;
   SESSION_SECRET: string;
   /**
    * 限速倍率，**仅供本地开发与 E2E 使用**，默认 1。

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:workers';
+import { putTrack } from '../../src/server/media';
 import {
   ORIGIN,
   SELF,
@@ -39,6 +40,32 @@ async function putBlob(url: string, cookie: string, body: BodyInit, ip = nextIp(
 }
 
 describe('上传', () => {
+  it('STORAGE=r2 时即使配了 B2 也强制走本地 R2', async () => {
+    const forced = {
+      ...env,
+      STORAGE: 'r2',
+      B2_KEY_ID: 'not-a-real-key',
+      B2_APPLICATION_KEY: 'not-a-real-secret',
+      B2_BUCKET_ID: 'not-a-real-bucket',
+      B2_BUCKET_NAME: 'not-a-real-bucket-name',
+    } as any;
+    const bytes = fakeSong(16);
+    const trackId = crypto.randomUUID();
+
+    const written = await putTrack(
+      forced,
+      'ABCDEF',
+      trackId,
+      'x.mp3',
+      new Response(bytes).body!,
+      bytes.length,
+    );
+
+    expect(written).toBe(bytes.length);
+    const stored = await bucket.get(`rooms/ABCDEF/tracks/${trackId}`);
+    expect(new Uint8Array(await stored!.arrayBuffer())).toEqual(bytes);
+  });
+
   it('登记元数据后拿到 trackId 与上传地址', async () => {
     const { code, cookie } = await roomWith('阿甲');
     const res = await register(code, cookie, '晴天.mp3', 2048);

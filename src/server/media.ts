@@ -218,6 +218,8 @@ function clientFor(config: B2Config): B2Client {
 
 /** B2 配了就用 B2，否则用 R2（本地开发与测试走本地 R2 模拟） */
 export function storageFor(env: Env, roomCode: string): TrackStore {
+  // 测试用的逃生口：.dev.vars 里可能有真实 B2 密钥，E2E 不能往真桶里写
+  if (env.STORAGE === 'r2' && env.BUCKET) return r2Store(env.BUCKET, roomCode);
   const config = b2Config(env);
   if (config) return b2Store(config, roomCode);
   if (env.BUCKET) return r2Store(env.BUCKET, roomCode);
