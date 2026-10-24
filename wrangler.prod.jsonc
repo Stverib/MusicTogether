@@ -1,0 +1,23 @@
+// 生产部署配置：存储走 Backblaze B2，**不绑 R2**。
+//
+// R2 即使只用免费额度也要先给 Cloudflare 绑付款方式，而没有境外卡就开不了；
+// B2 有 10 GB 永久免费、注册不要信用卡。本地开发与测试仍用 wrangler.jsonc
+// 里的本地 R2 模拟，两条路在 src/server/media.ts 里按环境变量切换。
+{
+  "name": "musictogether",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "RoomDO" },
+      { "name": "GUARD", "class_name": "GuardDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomDO", "GuardDO"] }],
+  "observability": { "enabled": true }
+}

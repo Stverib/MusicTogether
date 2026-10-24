@@ -13,7 +13,7 @@
     "dev:worker": "wrangler dev --port 8787",
     "dev:lan": "npm run build && node scripts/dev-lan.mjs",
     "build": "vite build",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run build && wrangler deploy -c wrangler.prod.jsonc",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
