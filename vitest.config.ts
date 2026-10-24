@@ -27,6 +27,12 @@ export default defineConfig({
                 // 显式锁回 1 倍：.dev.vars 里为了 E2E 把限速放宽了 50 倍，
                 // 而限速本身正是这一层要测的东西
                 RATE_LIMIT_SCALE: '1',
+                // 同样必须锁死：.dev.vars 里可能配了真实的 B2，不挡住的话
+                // 集成测试会往真桶里写东西，断言也会读不到本地 R2
+                B2_KEY_ID: '',
+                B2_APPLICATION_KEY: '',
+                B2_BUCKET_ID: '',
+                B2_BUCKET_NAME: '',
               },
             },
           }),

@@ -12,7 +12,15 @@ describe('HTTP 路由', () => {
 
   it('没有任何存储绑定（R2 与 B2 都没配）时判定为未配置', async () => {
     // 健康检查把这一条当成 503；service binding 的 fetch 换不了 env，所以直接测判定
-    expect(storageConfigured({ ...env, BUCKET: undefined } as any)).toBe(false);
+    const bare = {
+      ...env,
+      BUCKET: undefined,
+      B2_KEY_ID: undefined,
+      B2_APPLICATION_KEY: undefined,
+      B2_BUCKET_ID: undefined,
+      B2_BUCKET_NAME: undefined,
+    } as any;
+    expect(storageConfigured(bare)).toBe(false);
     expect(storageConfigured(env as any)).toBe(true);
   });
 
