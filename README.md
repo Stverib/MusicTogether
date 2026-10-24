@@ -144,20 +144,22 @@ Backblaze B2 账号（10 GB 永久免费，注册不要信用卡）。
 Range、206、Content-Type 白名单这些语义仍由 Worker 代理，和本地一致。
 本地开发与测试继续用 `wrangler.jsonc` 里的 R2 模拟，不需要任何账号。
 
-首次部署：
+首次部署：先 `npm run deploy` 把 Worker 建出来 —— 新账号上 Worker 还不存在时
+`wrangler secret put` 会报 `10007`。第一次部署后 `/api/health` 返回 503 是正常的，
+密钥注入后才会变 200。
 
 ```bash
 npx wrangler login
 
 # B2 后台：建一个私有桶，再建一把只对这个桶有
 # listFiles / readFiles / writeFiles / deleteFiles 权限的 Key
+npm run deploy                              # 第一次部署
+
 npx wrangler secret put SESSION_SECRET      # 32 字节以上的随机值
 npx wrangler secret put B2_KEY_ID
 npx wrangler secret put B2_APPLICATION_KEY
 npx wrangler secret put B2_BUCKET_ID
 npx wrangler secret put B2_BUCKET_NAME
-
-npm run deploy
 ```
 
 `npm run deploy` 固定使用 `wrangler.prod.jsonc`，不要用 `wrangler deploy`
