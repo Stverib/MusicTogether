@@ -12,6 +12,9 @@ import {
   uploadTrack,
 } from './helpers';
 
+// 本地测试环境一定绑了 R2；生产走 B2 的那条路见 b2store.test.ts
+const bucket = env.BUCKET!;
+
 async function register(
   code: string,
   cookie: string,
@@ -57,7 +60,7 @@ describe('上传', () => {
     expect(put.status).toBe(200);
     expect(((await put.json()) as any).size).toBe(bytes.length);
 
-    const stored = await env.BUCKET.get(`rooms/${code}/tracks/${trackId}`);
+    const stored = await bucket.get(`rooms/${code}/tracks/${trackId}`);
     expect(stored).not.toBeNull();
     expect(new Uint8Array(await stored!.arrayBuffer())).toEqual(bytes);
   });
@@ -66,7 +69,7 @@ describe('上传', () => {
     const { code, cookie } = await roomWith('阿甲');
     const trackId = await uploadTrack(code, cookie, '01. 晴天 - 周杰伦.mp3');
 
-    const stored = await env.BUCKET.get(`rooms/${code}/tracks/${trackId}`);
+    const stored = await bucket.get(`rooms/${code}/tracks/${trackId}`);
     expect(decodeURIComponent(stored!.customMetadata!.name!)).toBe('01. 晴天 - 周杰伦.mp3');
   });
 
@@ -112,7 +115,7 @@ describe('上传', () => {
     // 声明 1000，实际给 100 —— FixedLengthStream 会判定不符
     const put = await putBlob(uploadUrl, cookie, fakeSong(100));
     expect(put.status).not.toBe(200);
-    expect(await env.BUCKET.get(`rooms/${code}/tracks/${trackId}`)).toBeNull();
+    expect(await bucket.get(`rooms/${code}/tracks/${trackId}`)).toBeNull();
   });
 
   it('上传不存在的曲目返回 404', async () => {
@@ -137,7 +140,7 @@ describe('上传的安全约束', () => {
       );
       expect(res.status).toBe(400);
     }
-    const listed = await env.BUCKET.list({ prefix: `rooms/${code}/` });
+    const listed = await bucket.list({ prefix: `rooms/${code}/` });
     expect(listed.objects).toHaveLength(0);
   });
 
@@ -164,14 +167,14 @@ describe('上传的安全约束', () => {
       headers: { Cookie: other.cookie, 'CF-Connecting-IP': nextIp() },
     });
     expect(denied.status).toBe(403);
-    expect(await env.BUCKET.get(`rooms/${code}/tracks/${trackId}`)).not.toBeNull();
+    expect(await bucket.get(`rooms/${code}/tracks/${trackId}`)).not.toBeNull();
 
     const allowed = await SELF.fetch(`${ORIGIN}/api/rooms/${code}/tracks/${trackId}`, {
       method: 'DELETE',
       headers: { Cookie: cookie, 'CF-Connecting-IP': nextIp() },
     });
     expect(allowed.status).toBe(200);
-    expect(await env.BUCKET.get(`rooms/${code}/tracks/${trackId}`)).toBeNull();
+    expect(await bucket.get(`rooms/${code}/tracks/${trackId}`)).toBeNull();
   });
 
   it('删除后曲目表与队列都不再包含它', async () => {

@@ -1,7 +1,15 @@
 export interface Env {
   ROOMS: DurableObjectNamespace<import('./room').RoomDO>;
   GUARD: DurableObjectNamespace<import('./guard').GuardDO>;
-  BUCKET: R2Bucket;
+  /**
+   * 本地开发与测试用的 R2 绑定。生产环境不绑 R2（见 wrangler.prod.jsonc），
+   * 改用 B2_* 那组变量 —— R2 即使只用免费额度也要求先绑定付款方式。
+   */
+  BUCKET?: R2Bucket;
+  B2_KEY_ID?: string;
+  B2_APPLICATION_KEY?: string;
+  B2_BUCKET_ID?: string;
+  B2_BUCKET_NAME?: string;
   SESSION_SECRET: string;
   /**
    * 限速倍率，**仅供本地开发与 E2E 使用**，默认 1。

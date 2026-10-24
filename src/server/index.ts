@@ -1,7 +1,7 @@
 import { generateCode, normalizeCode } from '../shared/codes';
 import type { Env } from './env';
 import { checkRate, clientIp } from './guard';
-import { MAX_UPLOAD_BYTES, deleteTrack, putTrack, streamTrack } from './media';
+import { MAX_UPLOAD_BYTES, deleteTrack, putTrack, storageConfigured, streamTrack } from './media';
 import { isRoomCode, isUuid, originAllowed, withSecurity } from './security';
 import { readSession, signSession, sessionCookie } from './session';
 
@@ -71,13 +71,15 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (!path.startsWith('/api/')) return new Response('not found', { status: 404 });
 
   if (path === '/api/health') {
-    // 密钥配错时健康检查要如实报告，而不是假装一切正常
+    // 密钥或存储配错时健康检查要如实报告，而不是假装一切正常。
+    // 存储没配的话房间能建、歌却传不上去，这是最容易漏掉的部署失误
     let configured = true;
     try {
       sessionSecret(env);
     } catch {
       configured = false;
     }
+    if (!storageConfigured(env)) configured = false;
     return json({ ok: configured, at: Date.now() }, { status: configured ? 200 : 503 });
   }
 
