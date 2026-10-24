@@ -15,13 +15,13 @@
 | 房间码 | 拿到就能听、能下载、能删队列 |
 | 会话令牌 | 同上，且 30 天有效 |
 | `SESSION_SECRET` | 可以伪造任意房间的任意身份，等于全盘沦陷 |
-| R2 / Worker 额度 | 被刷爆后服务对真实用户不可用 |
+| 对象存储 / Worker 额度 | 被刷爆后服务对真实用户不可用 |
 
 ### 信任边界
 
 ```
 不可信 ──────────────────────────────────────────────── 可信
-浏览器输入     →  Worker 路由  →  RoomDO  →  R2
+浏览器输入     →  Worker 路由  →  RoomDO  →  对象存储
 （文件名、昵称、     （唯一的校验点）   （信任 Worker
   聊天、trackId、                       已校验过的输入）
   上传字节）
@@ -46,7 +46,7 @@
 
 ### 2.1 路径穿越 → 读取其他房间的文件（严重）
 
-**攻击**：`trackId` 来自 URL，被拼进 R2 key `rooms/<code>/tracks/<trackId>`。
+**攻击**：`trackId` 来自 URL，被拼进对象存储 key `rooms/<code>/tracks/<trackId>`。
 若不做校验，请求
 
     GET /api/rooms/K7M2QX/tracks/..%2F..%2FOTHER/secret/stream
@@ -185,7 +185,7 @@
 
 ### 2.7 资源耗尽
 
-**攻击**：拿到一个房间码后无限上传，把 R2 免费额度（10 GB）填满，
+**攻击**：拿到一个房间码后无限上传，把 B2 免费额度（10 GB）填满，
 或者用超大文件打满 Worker 请求数。
 
 **对策**：
@@ -205,15 +205,16 @@ HMAC 会话是无状态的，因此**无法吊销**，只能等 30 天过期。
 **为什么接受**：改成可吊销就要每次流式请求都查 DO —— 而浏览器为一首歌会发几十个
 Range 请求，成本放大几十倍。对小规模自用场景不划算。
 
-**缓解**：删除房间时一并删除 R2 对象，让存量的 trackId 全部失效。
+**缓解**：删除房间时一并删除对象存储里的副本，让存量的 trackId 全部失效。
 
 ---
 
 ### 2.9 依赖与供应链
 
-当前运行时依赖只有 `preact` 和 `@preact/signals`，都是 Preact 团队维护的成熟库。
-**新增运行时依赖需要有理由** —— 每多一个依赖就多一份供应链风险，
-而这个项目绝大多数需求用标准 Web API 就能满足。
+当前运行时依赖只有 `preact`、`@preact/signals` 和 `three`（3D 舞台，MIT、ESM、
+核心 0 处 `eval`/`new Function`）。**新增运行时依赖需要有理由** —— 每多一个依赖就
+多一份供应链风险，而这个项目绝大多数需求用标准 Web API 就能满足。
+`three` 是特例，不是先例。
 
 CI 里跑 `npm audit`，但**不要盲目 `npm audit fix`**（可能引入破坏性变更）。
 
@@ -348,21 +349,23 @@ API 响应统一在 Worker 最外层加（`withSecurity()`，一处生效）。
 
 ## 5. 上线前检查清单
 
-已完成的（2026-10-18 本地验证）：
+已完成的：
 
 - [x] 仓库里 grep 不到任何密钥（`git log -p --all | grep -i secret` 只剩变量名与测试夹具）
-- [x] 上述所有回归用例是绿的（集成 171 条 + 端到端 45 条）
+- [x] 上述所有回归用例是绿的（2026-10-24：集成 230 条 + 端到端 63 条）
 - [x] 手工渗透验证（curl，见下方记录）
 - [x] 静态外壳与 API 都带上了全部安全响应头
 - [x] 生产环境 Cookie 带 `Secure`（`sessionCookie(..., secure)`，按 `url.protocol === 'https:'` 判定）
+- [x] 生产 `SESSION_SECRET` 是上线时（2026-10-24）新生成的 43 字符随机值，经 `wrangler secret put` 注入
+- [x] B2 桶是私有的，没有配公开 URL；访问一律经 Worker 鉴权代理
+- [x] 线上冒烟通过：上传、完整读取、Range 206、中文文件名 MIME、删除后 404（2026-10-24）
 
-部署时才能做、**必须在上线前补上**的：
+仍未做的：
 
-- [ ] `wrangler secret put SESSION_SECRET` 用的是 32 字节以上随机值
-      （本地 `.dev.vars` 里那个只用于开发，绝不能带到生产）
-- [ ] R2 桶**没有**开公开访问（没有自定义域、没有 `r2.dev`）——
-      需要 Cloudflare 账号，本地无法验证
-- [ ] Cloudflare 后台开了 HSTS
+- [ ] Cloudflare 后台开 HSTS
+- [ ] 给国内访问绑自定义域名（`workers.dev` 的 DNS 被污染，不是安全问题，但影响可用性）
+- [ ] B2 Application Key 目前是账号级（unrestricted），建议收紧为只对该桶有
+      listFiles / readFiles / writeFiles / deleteFiles 权限
 
 ### 手工渗透验证记录（2026-10-18，wrangler dev）
 

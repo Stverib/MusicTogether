@@ -151,7 +151,7 @@ export class RoomDO extends DurableObject<Env> {
       case '/track-add':
         return this.addTrack(request);
       case '/track-meta': {
-        // 上传字节时用来决定 R2 的 customMetadata.name，以及核对实际字节数。
+        // 上传字节时用来决定远端存的文件名元数据（R2 customMetadata / B2 file info），以及核对实际字节数。
         // 以 DO 里的登记为准，而不是让客户端在 PUT 时自己声明。
         const track = this.room.tracks.find((t) => t.id === url.searchParams.get('trackId'));
         return track

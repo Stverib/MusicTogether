@@ -2,6 +2,46 @@
 
 > 记录实现进度、关键决策与踩过的坑。最新的在最上面。
 
+## 2026-10-24
+
+### 存储换成 Backblaze B2，并上线
+
+- 用户没有境外信用卡，开不了 R2（即使免费额度也要求先绑付款方式）。
+  生产改用 **Backblaze B2**（10 GB 永久免费、注册不要信用卡），
+  本地开发与测试继续用 `wrangler.jsonc` 的 R2 模拟。决策 D14 记在
+  `docs/spec.md` §1.3。
+- B2 走原生 API：S3 的 SigV4 要先把整个请求体算 SHA-256，100 MB 的歌在
+  128 MB 的 Worker 里没法缓冲；B2 允许 `X-Bz-Content-Sha1: do_not_verify`，
+  配 `FixedLengthStream` 可以边收边传。Range/206 由 B2 产出，Worker 只覆盖
+  `Content-Type` 与安全头。
+- 两个只有真实服务才暴露的问题：全局 `fetch` 作为构造参数默认值、
+  再经 `this.fetchImpl()` 调用会丢 `this`（`Illegal invocation`）；
+  v4 的 `b2_authorize_account` 把 `apiUrl`/`downloadUrl` 放在
+  `apiInfo.storageApi`，不是顶层字段。两条都补了回归测试。
+- 已部署：<https://musictogether.musictogether.workers.dev>，5 个生产密钥经
+  `wrangler secret put` 注入；线上真实验证过上传、完整读取、Range 206、
+  中文文件名 MIME、删除后 404。
+- **`workers.dev` 在国内的 DNS 被污染**（实测解析到 Facebook / Dropbox 的地址），
+  直连打不开；Cloudflare 边缘本身可达。要给国内朋友用必须绑自定义域名。
+- 部署配置拆成 `wrangler.prod.jsonc`（无 R2 绑定）；`npm run deploy` 用它。
+  新账号上必须先部署再注密钥，否则 `wrangler secret put` 报 `10007`。
+- 测试隔离：`.dev.vars` 里现在有真实 B2 密钥 —— 集成测试把 `B2_*` 置空，
+  E2E 传 `--var STORAGE:r2`。曾经漏了这层，集成测试往真桶写了 105 个测试对象，
+  已全部清理。
+- 测试数：单元 + 集成 230 条、端到端 63 条，全绿；`typecheck` 干净。
+- PWA 安装与锁屏媒体控制仍未人工验证 —— 但线上已是 HTTPS，这一项现在可以直接验了
+  （之前卡在局域网 HTTP 不是安全上下文）。
+
+### 上传与播放体验
+
+- 选文件时先探测 MP4 有没有音频轨道（`src/client/audioProbe.ts`），
+  把视频改扩展名冒充 mp3 的文件在上传前就挡掉。
+- 播放器增加「缓冲中…」状态与 `--:--` 时长：起播前 `readyState` 不足时
+  不再显示 0:00，避免被误读成「没声音」。
+- 离线缓存延后到播放稳定（`HAVE_FUTURE_DATA`）之后，避免全文件下载与
+  起播抢带宽。
+- 房间没有监听者时 `alarm()` 直接删除，不再空转（`SQLITE_BUSY` 崩溃的修复）。
+
 ## 2026-10-20
 
 - Android 端实测可正常访问与播放（此前只在 HarmonyOS 上验证过）。

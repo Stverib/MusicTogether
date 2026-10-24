@@ -16,16 +16,25 @@
     npm test               # 单元 + 集成测试
     npm run test:e2e       # Playwright（跑构建产物，8788；用系统 Edge）
     npm run typecheck      # 前端与服务端两套 tsconfig 都检查
-    npm run deploy         # 构建并部署
+    npm run deploy         # 构建并用 wrangler.prod.jsonc 部署（存储走 B2）
 
 新克隆的仓库跑不了 Worker：`.dev.vars` 被 gitignore 了，
 要照 `.dev.vars.example` 自己建一个（`SESSION_SECRET` 必须 32 字符以上，
 否则服务会拒绝启动）。
 
-首次部署前必须：
+首次部署前必须（先部署、再注密钥 —— 新账号上 Worker 不存在时
+`wrangler secret put` 会报 `10007`）：
 
-    wrangler r2 bucket create musictogether-tracks
+    npx wrangler login
+    npm run deploy
     wrangler secret put SESSION_SECRET
+    wrangler secret put B2_KEY_ID
+    wrangler secret put B2_APPLICATION_KEY
+    wrangler secret put B2_BUCKET_ID
+    wrangler secret put B2_BUCKET_NAME
+
+生产存储是 Backblaze B2；R2 只用于本地开发与测试的模拟
+（R2 即使只用免费额度也要求先绑付款方式）。详见 `README.md` 的部署一节。
 
 ## 架构一句话
 

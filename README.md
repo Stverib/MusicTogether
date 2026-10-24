@@ -197,7 +197,7 @@ PWA、Service Worker 与安全上下文相关的 Web API 都依赖它。
 
 ```
 src/shared/        前后端共用，只能是纯函数与类型（房间码、播放锚点、协议、主题白名单）
-src/server/        Worker 侧（路由、鉴权、安全闸门、RoomDO、R2 读写）
+src/server/        Worker 侧（路由、鉴权、安全闸门、RoomDO、对象存储读写 R2/B2）
 src/client/        浏览器侧（Preact + signals、播放器、缓存、聊天）
   stage/           3D 场景层，独立于 Preact 的命令式模块，整棵按需加载
     themes/        主题实现（晨光、余烬）+ 注册表

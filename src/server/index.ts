@@ -199,12 +199,12 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const limited = await guarded(env, request, 'upload', lim.upload);
     if (limited) return limited;
 
-    // trackId 会被拼进 R2 key，必须先证明它是 UUID（安全文档 §2.1）
+    // trackId 会被拼进对象存储 key，必须先证明它是 UUID（安全文档 §2.1）
     const trackId = blobMatch[1]!;
     if (!isUuid(trackId)) return fail(400, 'bad track id');
     if (!request.body) return fail(400, 'empty body');
 
-    // R2 的 put() 要求流有已知长度，所以这里**必须**有 Content-Length。
+    // 两条存储后端都要求流有已知长度，所以这里**必须**有 Content-Length。
     // 不能只把它当参考值：实际字节数会被 FixedLengthStream 强制成这个数，
     // 而登记时的配额也是按这个数算的，两者必须一致（安全文档 §2.7）
     const declared = Number(request.headers.get('Content-Length'));

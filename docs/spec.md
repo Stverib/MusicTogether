@@ -2,15 +2,20 @@
 
 > 一句话：两个人（或多人）在各自的浏览器里打开同一个网页，A 把自己设备上的歌传上去，所有人听到同一首歌，进度条保持同步。
 
-状态：**已实现**（2026-10-18 起按 `docs/superpowers/plans/2026-10-18-musictogether-mvp.md`
-逐任务落地；3D 舞台见 `docs/superpowers/plans/2026-10-18-3d-stage.md`）。
+状态：**已实现并上线**（2026-10-18 起按
+`docs/superpowers/plans/2026-10-18-musictogether-mvp.md` 逐任务落地；3D 舞台见
+`docs/superpowers/plans/2026-10-18-3d-stage.md`）。2026-10-24 部署到
+Workers + Backblaze B2（`https://musictogether.musictogether.workers.dev`）。
 测试与部署方式见根目录 `README.md`。HarmonyOS 与 Android 真机均验证通过。
+
+> 国内注意：`workers.dev` 的 DNS 在国内被污染，长期分享需要绑自定义域名。
+> 这不是代码问题，Cloudflare 边缘本身可达。
 
 ### 实现过程中与规格的偏差
 
 规格没写到、写代码时才暴露出来的地方，按实际实现为准：
 
-1. **曲目入队的时机**：登记（`POST /tracks`）时**不**入队，等字节真的落进 R2
+1. **曲目入队的时机**：登记（`POST /tracks`）时**不**入队，等字节真的落进对象存储
    之后由服务端入队。原设计隐含"登记即可见"，但那样另一端点播放只会拿到 404 ——
    大文件下这个窗口能有几分钟。现在队列里的每一首都保证能播。
 2. **静态外壳的安全响应头**：静态资源由平台直接送出（`run_worker_first: ["/api/*"]`，
@@ -44,10 +49,10 @@
 |---|--------|------|
 | D1 | 音源模型 | A 上传 → 云端中转 → B 下载成缓存 → 各自播放本地副本，同步的是时间轴与播放状态。**不是**实时音频推流。 |
 | D2 | 交付形态 | 纯网页 / PWA。一套代码同时跑 HarmonyOS 与 Android，浏览器直达，不经过任何应用商店。 |
-| D3 | 服务端 | Cloudflare Serverless 全家桶：Workers（API/静态资源）+ Durable Objects（房间）+ R2（文件）。 |
+| D3 | 服务端 | Cloudflare Serverless：Workers（API/静态资源）+ Durable Objects（房间）+ 对象存储（生产 Backblaze B2，本地与测试用 R2 模拟）。见 D14。 |
 | D4 | 播放控制权 | 平权 + 服务端权威。任何人都能播/停/切/拖，操作发给服务端，服务端盖时间戳后广播。 |
 | D5 | 同步精度 | 粗同步（±1 秒即可）。不做时钟对齐、不做变速追帧。 |
-| D6 | 播放源 | 流式播放 + 后台缓存。B 直接从 R2 拉流即点即响；同时后台把文件写进本地缓存，下次走本地。 |
+| D6 | 播放源 | 流式播放 + 后台缓存。B 直接从对象存储拉流即点即响；同时后台把文件写进本地缓存，下次走本地。 |
 | D7 | 房间生命周期 | 常驻 + 可临时开房。配对一次后记住房间，以后打开就在里面；也可临时开一个。 |
 | D8 | 上传端 | 电脑与手机都支持。电脑用目录选择 API（体验好），手机退化为选文件夹或多选。 |
 | D9 | 云端副本 | 永久保留。「从队列移除」不影响云端；另有明确的「从云端彻底删除」。 |
@@ -59,7 +64,7 @@
 - **无账号系统**：身份靠 `localStorage` 里的 `clientId` + 用户自填昵称，没有注册登录。
 - **房间码为 6 位字母数字**（见 §4.1），不是 6 位纯数字——后者只有 100 万种可能，可被枚举。
 - **不解析 ID3 标签**：列表直接显示文件名。若日后需要，再引入元数据解析。
-- **歌曲文件经 Worker 代理提供**，不开放 R2 公开桶，以保证链接不可被外部猜测访问。
+- **歌曲文件经 Worker 代理提供**，不开放对象存储的公开桶，以保证链接不可被外部猜测访问。
 
 ### 1.2 实现之后的决策变更
 
@@ -88,6 +93,20 @@ D11、D12 与 D13 的实现细节：
   客户端在 `onopen` 立刻补报一次真实值，所以后台重连不会停在错的状态上。
   上报是**幂等**的：真机上可见性事件会成串地来，重复上报不产生广播。
   服务端只收布尔值——`away: "yes"` 这种隐式真值一律拒掉。
+
+### 1.3 2026-10-24 的存储后端变更
+
+| # | 决策点 | 原结论 | 新结论 | 为什么改 |
+|---|--------|--------|--------|----------|
+| D14 | 音频字节存哪 | R2 | **生产用 Backblaze B2，本地与测试继续用 R2 模拟** | R2 即使只用免费额度也要求先绑付款方式，没有境外卡就开不了。B2 有 10 GB 永久免费、注册不要信用卡 |
+
+实现要点：
+
+- 两条后端都在 `src/server/media.ts`，对上层暴露同一个 `TrackStore`。选谁只看环境变量：`B2_*` 齐全就 B2，否则用 `BUCKET`（本地 R2 模拟）。
+- B2 走原生 API 而不是 S3 兼容接口：S3 的 SigV4 要先把整个请求体算出 SHA-256，100 MB 的歌在 128 MB 的 Worker 里没法缓冲。B2 允许 `X-Bz-Content-Sha1: do_not_verify`，配 `FixedLengthStream` 就能边收边传。
+- v4 的 `b2_authorize_account` 把 `apiUrl` / `downloadUrl` 放在 `apiInfo.storageApi` 里，不是顶层字段；上传地址用 `GET /b2api/v4/b2_get_upload_url?bucketId=`。
+- `STORAGE=r2` 是测试用的逃生口：`.dev.vars` 里可能有真实 B2 密钥，E2E 必须被按在本地模拟上，集成测试则直接把 `B2_*` 置空。
+- 线上已验证：上传、完整读取、`Range` 206、中文文件名推导 MIME、删除后 404。
 
 ---
 
@@ -124,7 +143,7 @@ dev server 临时暴露成 HTTPS。
 
 - WebSocket 消息计入 DO 的 100,000 次/日免费额度 → **协议必须"只在状态变化时说话"**，禁止高频进度广播
 - WebSocket 空闲超时存在但时长未公开 → **必须实现客户端心跳**
-- Worker 内存 128 MB → **R2 响应必须流式转发，不能缓冲**
+- Worker 内存 128 MB → **对象存储响应必须流式转发，不能缓冲**
 
 另外，`getWebSocket` 相关的两个行为已由 Cloudflare 在 2026 年 3 月和 4 月改为默认，新建 Worker 直接受益，见 §6.3。
 
@@ -181,9 +200,9 @@ B 打开同一网址 → 手输码 + 昵称 → 进房。输入框会边打边�
 ┌──────────────┐                            └───────┬─────────┬───────┘
 │  浏览器 B     │ ◄───────────────────────►         │         │
 │  (PWA)       │                              ┌─────▼─────┐ ┌─▼─────┐
-└──────────────┘                              │ Durable   │ │  R2   │
-                                              │ Object    │ │ 文件  │
-                                              │ = 一个房间 │ │       │
+└──────────────┘                              │ Durable   │ │ 对象  │
+                                              │ Object    │ │ 存储  │
+                                              │ = 一个房间 │ │ (B2)  │
                                               └───────────┘ └───────┘
 ```
 
@@ -213,7 +232,8 @@ B 打开同一网址 → 手输码 + 昵称 → 进房。输入框会边打边�
 ### 4.3 存储布局
 
 ```
-R2:  rooms/<roomCode>/tracks/<trackId>          # trackId 为 UUID，不可猜
+对象存储（生产 B2，本地与测试用 R2 模拟）:
+      rooms/<roomCode>/tracks/<trackId>          # trackId 为 UUID，不可猜
 DO:  房间状态（见 §5）
 ```
 
@@ -266,7 +286,7 @@ type RoomState = {
 
 **存储后端必须是 SQLite**：Workers 免费计划只提供 SQLite 后端的 Durable Object（KV 后端是历史遗留，新账号不可用）。用 `wrangler` 的 `new_sqlite_classes` 迁移声明。
 
-**房间状态只存元数据**，音频字节一律在 R2。因此 DO 的存储占用是 KB 级，与 §12 中那处「每对象 1 GB 还是 10 GB」的官方文档矛盾无关。
+**房间状态只存元数据**，音频字节一律在对象存储（生产 B2，本地 R2 模拟）。因此 DO 的存储占用是 KB 级，与 §12 中那处「每对象 1 GB 还是 10 GB」的官方文档矛盾无关。
 
 ### 5.2 同步算法（D5：±1 秒）
 
@@ -351,13 +371,13 @@ Cloudflare 会在一段**未公开的**空闲时长后掐断 WebSocket，且网�
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/health` | 健康检查，返回 `{ok, at}`。`SESSION_SECRET` 没配好时 `ok: false` + 503 —— 宁可整个服务报不健康，也不要带着一个坏密钥跑 |
+| `GET` | `/api/health` | 健康检查，返回 `{ok, at}`。`SESSION_SECRET` 没配好、或存储（R2 / B2）没配全时 `ok: false` + 503 —— 宁可整个服务报不健康，也不要带着一个坏配置跑 |
 | `POST` | `/api/rooms` | 创建房间，返回 `{code}` |
 | `POST` | `/api/rooms/:code/join` | 加入，返回 `{clientId, room}` 并种 Cookie |
 | `GET` | `/api/rooms/:code/state` | 拉取快照（WS 之外的兜底） |
 | `GET` | `/api/rooms/:code/chat` | 取更早的聊天历史，`?before=<消息 id>` 为游标；不带游标就是最新一页 |
 | `POST` | `/api/rooms/:code/tracks` | 登记元数据，返回 `{trackId, uploadUrl}` |
-| `PUT` | `/api/rooms/:code/tracks/:id/blob` | 上传文件字节 → R2 |
+| `PUT` | `/api/rooms/:code/tracks/:id/blob` | 上传文件字节 → 对象存储 |
 | `GET` | `/api/rooms/:code/tracks/:id/stream` | 流式读取，支持 `Range`，返回 206 |
 | `DELETE` | `/api/rooms/:code/tracks/:id` | 从云端彻底删除（仅上传者） |
 | `GET` | `/api/me` | 返回当前会话身份 |
@@ -366,11 +386,11 @@ Cloudflare 会在一段**未公开的**空闲时长后掐断 WebSocket，且网�
 
 ### 7.1 `/stream` 的实现要点
 
-- 取对象时把请求头直接透传：`env.BUCKET.get(key, { range: request.headers })`
-- **必须流式返回 `object.body`，不能 `await object.arrayBuffer()`** —— Worker 内存只有 128 MB，缓冲稍大的文件会直接报 `Memory limit would be exceeded before EOF`
-- **R2 的 Worker API 不会自动生成 `206` / `Content-Range`**，Cloudflare 官方示例连 Range 请求都返回 200。这两个头要我们自己按 `object.range` 拼
+- **必须流式返回对象体，不能 `await arrayBuffer()`** —— Worker 内存只有 128 MB，缓冲稍大的文件会直接报 `Memory limit would be exceeded before EOF`
+- **R2（本地与测试）**：把请求头直接透传 `env.BUCKET.get(key, { range: request.headers })`；R2 的 Worker API 不会自动生成 `206` / `Content-Range`（官方示例连 Range 请求都返回 200），这两个头要按 `object.range` 自己拼
+- **B2（生产）**：`Range` 直接转给原生下载接口，`206` / `Content-Range` 由 B2 产出、原样保留；Worker 只覆盖 `Content-Type`（白名单）与安全头，并藏掉 `X-Bz-*` 内部头
 - `If-Range` 不被 R2 支持（其余条件头都支持）；非法 Range 会得到 R2 错误 `10039`，应转成 `416`
-- CPU 时间不含网络 I/O 等待，所以流式转发不会撞上免费计划的 10 ms CPU 上限；代价只是每个请求消耗 1 次 Worker 请求 + 1 次 R2 Class B 操作
+- CPU 时间不含网络 I/O 等待，所以流式转发不会撞上免费计划的 10 ms CPU 上限；代价只是每个请求消耗 1 次 Worker 请求 + 1 次对象存储读取
 
 ---
 
@@ -418,7 +438,7 @@ Cloudflare 会在一段**未公开的**空闲时长后掐断 WebSocket，且网�
 
 - 服务端只应服务**私密房间**：房间码是唯一入口，文件路径为不可猜的 UUID
 - 不提供任何"公开分享"能力——这是不让事情变质的唯一关键约束
-- R2 上的副本由上传者显式删除（D9）
+- 对象存储上的副本由上传者显式删除（D9）
 
 **安全设计另见 `docs/security.md`**（威胁模型、逐条对策、以及每条对策防不住什么）。
 `AGENTS.md` 的「安全红线」是它的压缩版，两者冲突时以 `security.md` 为准。
@@ -427,25 +447,33 @@ Cloudflare 会在一段**未公开的**空闲时长后掐断 WebSocket，且网�
 
 ## 11. 部署
 
-单次部署同时产出静态资源与 API：
+2026-10-24 已上线：<https://musictogether.musictogether.workers.dev>（存储走 B2）。
+部署用独立的生产配置，不绑 R2：
 
 ```
-wrangler deploy
+npm run deploy      # vite build + wrangler deploy -c wrangler.prod.jsonc
 ```
 
 产物：
 - Worker：`/api/*` + 静态资源
 - Durable Object 命名空间（每个房间一个实例）
-- R2 桶：`musictogether-tracks`
+- 对象存储：Backblaze B2 私有桶（经 Worker 代理读取）
 
-环境变量：`SESSION_SECRET`（HMAC 密钥，用 `wrangler secret put` 注入）
+密钥（`wrangler secret put`）：`SESSION_SECRET`、`B2_KEY_ID`、
+`B2_APPLICATION_KEY`、`B2_BUCKET_ID`、`B2_BUCKET_NAME`。
+
+顺序：先 `npm run deploy` 把 Worker 建出来，再注密钥 —— 新账号上 Worker
+不存在时 `wrangler secret put` 会报 `10007`。第一次部署后 `/api/health`
+返回 503 是正常的，密钥齐了才是 200。
+
+`workers.dev` 的 DNS 在国内被污染，要给国内朋友用需要绑自定义域名。
 
 ---
 
 ## 12. 免费额度与成本（2026-10-18 核实）
 
-> 本节记录这套栈在 Cloudflare 免费额度下的真实边界，供部署与容量评估参考。
-> 下面每一条都来自 Cloudflare 官方文档，非记忆。
+> 本节记录这套栈在 Cloudflare 与 Backblaze 免费额度下的真实边界，供部署与容量评估参考。
+> 下面每一条都来自官方文档，非记忆。
 
 ### 12.1 够不够用
 
@@ -457,18 +485,18 @@ wrangler deploy
 | Worker 请求 | 100,000/日 | 每次 Range 请求算 1 次 | ✅ |
 | Worker CPU | 10 ms/请求 | 纯流式转发，I/O 不计 CPU | ✅ |
 | Worker 请求体 | **100 MB** | 单首歌 3–15 MB | ✅ |
-| R2 存储 | 10 GB-月 | 约 1,250 首歌 | ✅ |
-| R2 Class B（读） | 10,000,000/月 | 每首约数十次 Range | ✅ |
-| R2 出口流量 | **免费** | B 下载不花钱 | ✅ |
+| B2 存储 | 10 GB 永久免费 | 约 1,250 首歌（按 8 MB/首） | ✅ |
+| B2 出口流量 | 每月最高 3× 存储量免费（10 GB → 30 GB） | 日常一起听歌够用 | ✅ |
+| B2 写入 | 计入免费额度 | 上传不额外计费 | ✅ |
 
-**唯一需要花钱的场景**：DO 的免费额度是**按日硬上限**，超了当天就报错（次日 UTC 零点重置）。小规模使用撞不到。若日后想加缓冲，Workers Paid 是 **$5/月**。
+**唯一需要花钱的场景**：DO 的免费额度是**按日硬上限**，超了当天就报错（次日 UTC 零点重置）。小规模使用撞不到。若日后想加缓冲，Workers Paid 是 **$5/月**。B2 的 10 GB 用满后上传会被拒（`storage_cap_exceeded`），正在放的歌不受影响。
 
 ### 12.2 核实中发现的坑（已并入设计）
 
 1. **WebSocket 消息算 DO 请求** —— 协议必须"只在状态变化时说话"
 2. **WebSocket 空闲超时存在，时长未公开** —— 必须客户端心跳
-3. **Worker 内存 128 MB** —— R2 响应必须流式，不能缓冲
-4. **R2 的 Worker API 不自动产出 `206`** —— `Content-Range` 要自己拼
+3. **Worker 内存 128 MB** —— 对象存储响应必须流式，不能缓冲
+4. **R2 的 Worker API 不自动产出 `206` / `Content-Range`**，要自己拼；B2 自己产出，原样保留
 5. **网络更新会掐断 WebSocket** —— 重连是必需项，不是优化项
 6. **请求体 100 MB 上限挂在"Zone 计划"上**，升级 Workers Paid 不一定能提高
 
@@ -480,6 +508,6 @@ wrangler deploy
 
 ### 12.4 另一条路（记录备查）
 
-R2 **公开桶 + 自定义域**可以直接绕过 Worker 提供 Range 服务，零 Worker 请求、零 CPU，只算 R2 Class B。代价是完全无鉴权——拿到链接的人永久可下载。**本项目不采用**（见 §10）。
+对象存储的**公开桶 + 自定义域**可以直接绕过 Worker 提供 Range 服务，零 Worker 请求、零 CPU（B2 也支持公开的 friendly URL）。代价是完全无鉴权——拿到链接的人永久可下载。**本项目不采用**（见 §10）。
 
-（`r2.dev` 子域官方明说不适合生产，且有可变速率限制，就更不考虑了。）
+（R2 的 `r2.dev` 子域官方明说不适合生产，且有可变速率限制，就更不考虑了。）
