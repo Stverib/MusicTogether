@@ -47,7 +47,9 @@ export class B2Client {
 
   constructor(
     private readonly config: B2Config,
-    private readonly fetchImpl: FetchLike = fetch,
+    // 不能直接写 `= fetch`：之后通过 this.fetchImpl() 调用就等于把 fetch
+    // 当成对象方法来调，Worker 会抛 Illegal invocation
+    private readonly fetchImpl: FetchLike = (input, init) => fetch(input, init),
   ) {}
 
   async putObject(
@@ -168,13 +170,17 @@ export class B2Client {
       throw new Error(`b2 authorize failed: ${res.status} ${await errorCode(res)}`);
     }
     const data = (await res.json()) as {
-      apiUrl: string;
-      downloadUrl: string;
       authorizationToken: string;
+      // v4 把这两个地址放进了 apiInfo.storageApi，不再是顶层字段
+      apiInfo?: { storageApi?: { apiUrl?: string; downloadUrl?: string } };
     };
+    const storage = data.apiInfo?.storageApi;
+    if (!storage?.apiUrl || !storage.downloadUrl) {
+      throw new Error('b2 authorize response missing storage api urls');
+    }
     this.auth = {
-      apiUrl: data.apiUrl,
-      downloadUrl: data.downloadUrl,
+      apiUrl: storage.apiUrl,
+      downloadUrl: storage.downloadUrl,
       token: data.authorizationToken,
       expiresAt: Date.now() + TOKEN_TTL_MS,
     };

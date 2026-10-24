@@ -41,9 +41,9 @@ function fakeB2(
 
     if (url === 'https://api.backblazeb2.com/b2api/v4/b2_authorize_account') {
       return Response.json({
-        apiUrl: API,
-        downloadUrl: DOWNLOAD,
+        accountId: 'account-id',
         authorizationToken: 'account-token',
+        apiInfo: { storageApi: { apiUrl: API, downloadUrl: DOWNLOAD } },
         allowed: { bucketId: CONFIG.bucketId, capabilities: [] },
       });
     }
@@ -202,6 +202,31 @@ describe('B2 客户端', () => {
     await expect(
       b2.putObject('rooms/R/tracks/T', streamOf(new Uint8Array([1])), 1, 'audio/mpeg', 'a.mp3'),
     ).rejects.toThrow(/403/);
+  });
+
+  it('默认走全局 fetch 时不能丢掉 this（真实 Worker 里会 Illegal invocation）', async () => {
+    const original = globalThis.fetch;
+    const { fetchImpl } = fakeB2();
+    // Worker 的原生 fetch 对 this 敏感：作为对象方法调用会直接抛
+    const thisSensitive = function (this: unknown, input: string, init?: RequestInit) {
+      if (this !== undefined) throw new TypeError('Illegal invocation');
+      return fetchImpl(input, init);
+    };
+    globalThis.fetch = thisSensitive as unknown as typeof fetch;
+
+    try {
+      const b2 = new B2Client(CONFIG);
+      const written = await b2.putObject(
+        'rooms/R/tracks/T',
+        streamOf(new Uint8Array([1])),
+        1,
+        'audio/mpeg',
+        'a.mp3',
+      );
+      expect(written).toBe(1);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   it('B2 没读请求体就拒绝时也要立刻失败，不能一直等流写完', async () => {

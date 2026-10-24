@@ -27,9 +27,11 @@ function fakeB2(overrides: Record<string, (call: Call) => Response> = {}) {
     if (key) return overrides[key]!(call);
     if (url.includes('b2_authorize_account')) {
       return Response.json({
-        apiUrl: 'https://api001.backblazeb2.com',
-        downloadUrl: DOWNLOAD,
+        accountId: 'account-id',
         authorizationToken: 'account-token',
+        apiInfo: {
+          storageApi: { apiUrl: 'https://api001.backblazeb2.com', downloadUrl: DOWNLOAD },
+        },
       });
     }
     throw new Error(`unexpected fetch: ${url}`);
