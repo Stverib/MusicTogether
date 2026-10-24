@@ -170,7 +170,17 @@ npx wrangler secret put B2_BUCKET_NAME
 
 配额提醒：B2 免费额度是 10 GB，而单房间上限是 2 GB / 200 首。额度用满后
 上传会被 B2 拒绝，已在放的歌不受影响。`/api/health` 会检查存储是否配好，
-没配或配置不全返回 503。国内访问 `*.workers.dev` 可能不稳定，必要时绑自己的域名。
+没配或配置不全返回 503。
+
+### 线上实例
+
+当前部署在 <https://musictogether.musictogether.workers.dev>，存储走 B2。
+
+> **国内注意**：`workers.dev` 的 DNS 在国内被污染（实测会解析到
+> Facebook / Dropbox 的地址），不挂代理打不开。要给国内朋友用，需要在
+> Cloudflare 绑一个自己的域名（免费版即可），再把它设为 Worker 的
+> Custom Domain —— Cloudflare 边缘本身在国内可达，坏掉的只是
+> `workers.dev` 这个后缀。
 
 上线前请逐条过 `docs/security.md` §5 的检查清单。生产环境必须使用 HTTPS：
 PWA、Service Worker 与安全上下文相关的 Web API 都依赖它。
