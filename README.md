@@ -59,7 +59,8 @@ MusicTogether 是一个可自托管的同步听歌 Web 应用。房间里的每�
 
 单个 Cloudflare Worker 同时托管静态 SPA 与 `/api/*`。每个房间是一个
 SQLite 后端的 Durable Object，用 WebSocket Hibernation 维持长连接，
-并广播服务端权威的播放锚点。音频字节存 R2，经 Worker 代理以支持 Range 与鉴权。
+并广播服务端权威的播放锚点。音频字节存对象存储（本地用 R2 模拟，生产用
+Backblaze B2），经 Worker 代理以支持 Range 与鉴权。
 
 ```
 浏览器 A ──┐                        ┌─ 静态 SPA
@@ -68,8 +69,8 @@ SQLite 后端的 Durable Object，用 WebSocket Hibernation 维持长连接，
                                        │
                             ┌──────────┴──────────┐
                             │                     │
-                     Durable Object            R2
-                     （每个房间一个）        （音频字节）
+                     Durable Object          对象存储
+                     （每个房间一个）       （音频字节）
 ```
 
 ## 快速开始
@@ -135,17 +136,36 @@ E2E 的本地状态放在 `.wrangler/e2e-state`，每轮开跑前清空，与
 
 ## 部署
 
-需要一个 Cloudflare 账号。首次部署：
+需要一个 Cloudflare 账号（Workers 免费版本身不需要付款方式）和一个
+Backblaze B2 账号（10 GB 永久免费，注册不要信用卡）。
+
+音频字节**没有**用 Cloudflare R2：R2 即使只用免费额度也要先绑付款方式。
+生产配置在 `wrangler.prod.jsonc`，里面没有 R2 绑定，改走 B2 的原生 API；
+Range、206、Content-Type 白名单这些语义仍由 Worker 代理，和本地一致。
+本地开发与测试继续用 `wrangler.jsonc` 里的 R2 模拟，不需要任何账号。
+
+首次部署：
 
 ```bash
 npx wrangler login
-npx wrangler r2 bucket create musictogether-tracks
+
+# B2 后台：建一个私有桶，再建一把只对这个桶有
+# listFiles / readFiles / writeFiles / deleteFiles 权限的 Key
 npx wrangler secret put SESSION_SECRET      # 32 字节以上的随机值
+npx wrangler secret put B2_KEY_ID
+npx wrangler secret put B2_APPLICATION_KEY
+npx wrangler secret put B2_BUCKET_ID
+npx wrangler secret put B2_BUCKET_NAME
+
 npm run deploy
 ```
 
-如果 R2 桶名不是 `musictogether-tracks`，同步修改 `wrangler.jsonc`。
-`SESSION_SECRET` 必须是足够长的随机值，否则服务会拒绝启动。
+`npm run deploy` 固定使用 `wrangler.prod.jsonc`，不要用 `wrangler deploy`
+裸跑（那会用带 R2 绑定的开发配置，没有 R2 权限时部署会失败）。
+
+配额提醒：B2 免费额度是 10 GB，而单房间上限是 2 GB / 200 首。额度用满后
+上传会被 B2 拒绝，已在放的歌不受影响。`/api/health` 会检查存储是否配好，
+没配或配置不全返回 503。国内访问 `*.workers.dev` 可能不稳定，必要时绑自己的域名。
 
 上线前请逐条过 `docs/security.md` §5 的检查清单。生产环境必须使用 HTTPS：
 PWA、Service Worker 与安全上下文相关的 Web API 都依赖它。

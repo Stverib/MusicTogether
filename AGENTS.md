@@ -31,7 +31,7 @@
 
 单个 Worker 同时托管静态 SPA 与 `/api/*`；每个房间是一个 SQLite 后端的
 Durable Object，用 WebSocket Hibernation 维持长连接并广播服务端权威的播放锚点；
-音频字节存 R2，经 Worker 代理以支持 Range 与鉴权。
+音频字节存对象存储（本地用 R2 模拟，生产用 Backblaze B2），经 Worker 代理以支持 Range 与鉴权。
 
 ## 目录约定
 
@@ -89,7 +89,7 @@ Durable Object，用 WebSocket Hibernation 维持长连接并广播服务端权�
     才谈得上不可枚举。
 
 12. **每个房间有存储配额**（曲目数与总字节数），满了拒绝上传。
-    否则任何人拿到一个房间码就能把 R2 免费额度填满。
+    否则任何人拿到一个房间码就能把对象存储的免费额度填满。
 
 ### 依赖
 
@@ -126,7 +126,8 @@ Durable Object，用 WebSocket Hibernation 维持长连接并广播服务端权�
 
 - Durable Object **必须**用 `new_sqlite_classes`（免费计划只支持 SQLite 后端）
 - WebSocket **必须**用 Hibernation API；`ping`/`pong` **必须**走 `setWebSocketAutoResponse`
-- R2 响应**必须**流式转发，`206` 与 `Content-Range` **必须**手写
+- 对象存储响应**必须**流式转发；R2 的 `206` 与 `Content-Range` 必须手写，
+  B2 自己回的这两个头必须原样保留 —— 无论哪条路，`Content-Type` 都只能来自白名单
 - 客户端**必须**每 25 秒心跳（空闲超时存在但时长未公开）
 - 兜底同步帧**只在播放中**调度，暂停时必须取消 alarm
 - 3D 场景的**音频能量只在本地算，绝不上行**；`three` 必须按需加载

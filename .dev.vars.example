@@ -9,3 +9,12 @@ SESSION_SECRET=local-dev-only-secret-at-least-32-chars-long
 # 本地所有请求都来自 127.0.0.1 这一个 IP，严格的生产限额会让测试套件
 # 把自己挡住。生产环境不要设这个变量。见 docs/security.md §2.4。
 RATE_LIMIT_SCALE=50
+
+# 可选：把本地 Worker 直接接到真实的 Backblaze B2 上做验证。
+# 填了这组变量就不再走本地 R2 模拟；平时留空即可。
+# 生产用 `wrangler secret put` 注入，不要写进仓库。
+# B2_KEY_ID=your-key-id
+# B2_APPLICATION_KEY=your-application-key
+# B2_BUCKET_ID=your-bucket-id
+# B2_BUCKET_NAME=your-bucket-name
+
